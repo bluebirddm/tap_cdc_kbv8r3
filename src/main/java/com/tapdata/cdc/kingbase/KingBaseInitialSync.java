@@ -27,6 +27,7 @@ class KingBaseInitialSync {
     @EventListener(ApplicationReadyEvent.class)
     public void submitInitialSync() {
         logger.info("Submitting initial KingBase SQL sync on application startup.");
+        syncService.refreshStatementGroupSchedules();
         syncService.triggerManualSyncAsync();
     }
 }

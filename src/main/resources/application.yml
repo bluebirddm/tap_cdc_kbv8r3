@@ -32,6 +32,10 @@ tap:
     default-fetch-size: 1000
     sync-state-table: kingbase_sync_state
     sql-statements-file: classpath:sql-statements.yml
+    sql-statement-groups:
+      - name: large-orders
+        file: classpath:sql-statements-large.yml
+        cron: "0 0 * * * *"
 
   # Debezium Configuration
   debezium:

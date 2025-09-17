@@ -38,3 +38,5 @@
 - The KingBase SQL sync service now supports chunked/streamed execution, worker-pool parallelism, and persistent cursors. Observe the configuration defaults in `ApplicationProperties.KingBase` when adding new statements.
 - SQL statements can be supplied inline or via `tap.kingbase.sql-statements-file` (YAML map keyed by statement name). Prefer external files for large statement sets and document any non-default chunk/fetch sizes.
 - Startup triggers enqueue a one-time sync on the same executor as scheduled runs; avoid blocking calls inside `KingBaseSqlSyncService` to keep the scheduler responsive.
+- Each statement is guarded by its own execution lock. If a long-running statement is still processing when the cron fires again, the service skips only that statement while continuing to dispatch the rest.
+- Use `tap.kingbase.sql-statement-groups` to give heavy tables their own YAML file and cron expression. Group keys are prefixed into the statement cursor so state tracking remains independent across groups.

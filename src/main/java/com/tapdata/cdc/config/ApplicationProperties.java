@@ -136,12 +136,12 @@ public class ApplicationProperties {
         private String url = "";
         private String sqlStatementsFile = "";
         private String sqlSyncCron = "0 */5 * * * *";
-        //Keep tap.kingbase.statement-parallelism above 1 if you rely on async startup kicks; otherwise the sync runs sequentially on the scheduler thread.
         private int statementParallelism = 4;
         private int defaultChunkSize = 0;
         private int defaultFetchSize = 1000;
         private String syncStateTable = "kingbase_sync_state";
         private List<SqlStatement> sqlStatements = new ArrayList<SqlStatement>();
+        private List<StatementGroup> sqlStatementGroups = new ArrayList<StatementGroup>();
 
         public boolean isEnabled() {
             return enabled;
@@ -291,6 +291,18 @@ public class ApplicationProperties {
             }
         }
 
+        public List<StatementGroup> getSqlStatementGroups() {
+            return sqlStatementGroups;
+        }
+
+        public void setSqlStatementGroups(List<StatementGroup> sqlStatementGroups) {
+            if (sqlStatementGroups == null) {
+                this.sqlStatementGroups = new ArrayList<StatementGroup>();
+            } else {
+                this.sqlStatementGroups = sqlStatementGroups;
+            }
+        }
+
         public static class SqlStatement {
             private String name;
             private String sql;
@@ -372,6 +384,36 @@ public class ApplicationProperties {
 
             public void setStreamResults(Boolean streamResults) {
                 this.streamResults = streamResults;
+            }
+        }
+
+        public static class StatementGroup {
+            private String name;
+            private String file;
+            private String cron;
+
+            public String getName() {
+                return name;
+            }
+
+            public void setName(String name) {
+                this.name = name;
+            }
+
+            public String getFile() {
+                return file;
+            }
+
+            public void setFile(String file) {
+                this.file = file;
+            }
+
+            public String getCron() {
+                return cron;
+            }
+
+            public void setCron(String cron) {
+                this.cron = cron;
             }
         }
     }

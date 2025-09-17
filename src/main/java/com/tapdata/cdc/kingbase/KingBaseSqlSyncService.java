@@ -8,7 +8,9 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.dao.DataAccessException;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.scheduling.TaskScheduler;
 import org.springframework.scheduling.annotation.Scheduled;
+import org.springframework.scheduling.support.CronTrigger;
 import org.springframework.stereotype.Service;
 import org.springframework.util.CollectionUtils;
 import org.springframework.util.StringUtils;
@@ -29,10 +31,9 @@ import java.util.Map;
 import java.util.Collections;
 import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
-import java.util.concurrent.Future;
+import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.ThreadFactory;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -55,9 +56,13 @@ public class KingBaseSqlSyncService {
     private final ApplicationProperties.KingBase kingBaseProperties;
     private final ResourceLoader resourceLoader;
     private final Map<String, Long> lastSyncedIds = new ConcurrentHashMap<String, Long>();
+    private final Map<String, AtomicBoolean> statementLocks = new ConcurrentHashMap<String, AtomicBoolean>();
     private final AtomicBoolean manualTriggerRequested = new AtomicBoolean(false);
-    private final AtomicBoolean syncInProgress = new AtomicBoolean(false);
     private final ExecutorService statementExecutor;
+    private final Map<String, ScheduledFuture<?>> groupSchedules = new ConcurrentHashMap<String, ScheduledFuture<?>>();
+
+    @Autowired(required = false)
+    private TaskScheduler taskScheduler;
 
     private volatile JdbcTemplate kingbaseJdbcTemplate;
     private volatile KingBaseSyncStateRepository stateRepository;
@@ -93,6 +98,7 @@ public class KingBaseSqlSyncService {
 
     @PreDestroy
     public void shutdownExecutor() {
+        cancelGroupSchedules();
         statementExecutor.shutdown();
     }
 
@@ -100,78 +106,23 @@ public class KingBaseSqlSyncService {
     public void syncStatements() {
         boolean triggeredManually = manualTriggerRequested.getAndSet(false);
 
-        if (!syncInProgress.compareAndSet(false, true)) {
+        JdbcTemplate template = kingbaseJdbcTemplate;
+        if (template == null) {
             if (triggeredManually) {
-                logger.warn("Manual KingBase SQL sync requested but a previous run is still in progress.");
-            } else {
-                logger.debug("Skipping KingBase SQL sync because a previous run is still in progress.");
+                logger.warn("Manual KingBase SQL sync requested but JdbcTemplate is not configured yet.");
             }
             return;
         }
 
-        try {
-            JdbcTemplate template = kingbaseJdbcTemplate;
-            if (template == null) {
-                if (triggeredManually) {
-                    logger.warn("Manual KingBase SQL sync requested but JdbcTemplate is not configured yet.");
-                }
-                return;
-            }
-
-            List<ApplicationProperties.KingBase.SqlStatement> statements = resolveConfiguredStatements();
-            if (CollectionUtils.isEmpty(statements)) {
-                if (triggeredManually) {
-                    logger.info("Manual KingBase SQL sync requested but no statements are configured.");
-                }
-                return;
-            }
-
-            getStateRepository();
-
-            List<Future<?>> futures = new ArrayList<Future<?>>();
-            int submittedStatements = 0;
-
-            for (ApplicationProperties.KingBase.SqlStatement statement : statements) {
-                if (!isExecutable(statement)) {
-                    continue;
-                }
-
-                futures.add(statementExecutor.submit(new Runnable() {
-                    @Override
-                    public void run() {
-                        try {
-                            runSingleStatement(statement);
-                        } catch (Exception ex) {
-                            logger.error("Failed to sync SQL statement '{}': {}", statement.getName(), ex.getMessage(), ex);
-                        }
-                    }
-                }));
-                submittedStatements++;
-            }
-
-            for (Future<?> future : futures) {
-                try {
-                    future.get();
-                } catch (InterruptedException ex) {
-                    Thread.currentThread().interrupt();
-                    logger.warn("Interrupted while waiting for KingBase SQL sync tasks to complete.");
-                    break;
-                } catch (ExecutionException ex) {
-                    Throwable cause = ex.getCause();
-                    if (cause != null) {
-                        logger.error("KingBase SQL sync task failed: {}", cause.getMessage(), cause);
-                    } else {
-                        logger.error("KingBase SQL sync task failed: {}", ex.getMessage(), ex);
-                    }
-                }
-            }
-
+        List<ApplicationProperties.KingBase.SqlStatement> statements = resolveConfiguredStatements();
+        if (CollectionUtils.isEmpty(statements)) {
             if (triggeredManually) {
-                logger.info("Manual KingBase SQL sync completed. Processed {} statement(s).", submittedStatements);
+                logger.info("Manual KingBase SQL sync requested but no statements are configured.");
             }
-        } finally {
-            syncInProgress.set(false);
+            return;
         }
+
+        dispatchStatements(statements, null, triggeredManually);
     }
 
     /**
@@ -195,8 +146,7 @@ public class KingBaseSqlSyncService {
         });
     }
 
-    private void runSingleStatement(ApplicationProperties.KingBase.SqlStatement statement) {
-        String statementKey = resolveStatementKey(statement);
+    private void runSingleStatement(ApplicationProperties.KingBase.SqlStatement statement, String statementKey) {
         long cursor = resolveLastSyncedId(statementKey);
         int chunkSize = resolveChunkSize(statement);
         int fetchSize = resolveFetchSize(statement, chunkSize);
@@ -253,6 +203,23 @@ public class KingBaseSqlSyncService {
         } else {
             logger.info("Synced {} row(s) for SQL statement '{}' (non-incremental).", processedRows, statementKey);
         }
+    }
+
+    private boolean acquireStatementLock(String statementKey) {
+        AtomicBoolean lock = statementLocks.computeIfAbsent(statementKey, key -> new AtomicBoolean(false));
+        return lock.compareAndSet(false, true);
+    }
+
+    private void releaseStatementLock(String statementKey) {
+        AtomicBoolean lock = statementLocks.get(statementKey);
+        if (lock != null) {
+            lock.set(false);
+        }
+    }
+
+    public void refreshStatementGroupSchedules() {
+        cancelGroupSchedules();
+        scheduleStatementGroups();
     }
 
     private StatementChunkResult executeStatementChunk(ApplicationProperties.KingBase.SqlStatement statement,
@@ -350,12 +317,11 @@ public class KingBaseSqlSyncService {
         if (!CollectionUtils.isEmpty(inlineStatements)) {
             combined.addAll(inlineStatements);
         }
-        combined.addAll(loadStatementsFromFile());
+        combined.addAll(loadStatementsFromFile(kingBaseProperties.getSqlStatementsFile()));
         return combined;
     }
 
-    private List<ApplicationProperties.KingBase.SqlStatement> loadStatementsFromFile() {
-        String location = kingBaseProperties.getSqlStatementsFile();
+    private List<ApplicationProperties.KingBase.SqlStatement> loadStatementsFromFile(String location) {
         if (!StringUtils.hasText(location)) {
             return Collections.<ApplicationProperties.KingBase.SqlStatement>emptyList();
         }
@@ -656,6 +622,129 @@ public class KingBaseSqlSyncService {
         }
 
         return null;
+    }
+
+    private void cancelGroupSchedules() {
+        for (ScheduledFuture<?> future : groupSchedules.values()) {
+            if (future != null) {
+                future.cancel(true);
+            }
+        }
+        groupSchedules.clear();
+    }
+
+    private void scheduleStatementGroups() {
+        List<ApplicationProperties.KingBase.StatementGroup> groups = kingBaseProperties.getSqlStatementGroups();
+        if (CollectionUtils.isEmpty(groups)) {
+            return;
+        }
+
+        if (taskScheduler == null) {
+            logger.warn("SQL statement groups are configured but no TaskScheduler bean is available; group scheduling is disabled.");
+            return;
+        }
+
+        for (ApplicationProperties.KingBase.StatementGroup group : groups) {
+            if (group == null || !StringUtils.hasText(group.getFile())) {
+                logger.warn("Skipping SQL statement group because file location is blank.");
+                continue;
+            }
+
+            String groupKey = resolveGroupKey(group);
+            String cron = StringUtils.hasText(group.getCron()) ? group.getCron() : kingBaseProperties.getSqlSyncCron();
+
+            Runnable task = new Runnable() {
+                @Override
+                public void run() {
+                    syncStatementsForGroup(group);
+                }
+            };
+
+            ScheduledFuture<?> future = taskScheduler.schedule(task, new CronTrigger(cron));
+            ScheduledFuture<?> previous = groupSchedules.put(groupKey, future);
+            if (previous != null) {
+                previous.cancel(true);
+            }
+            logger.info("Scheduled KingBase SQL statement group '{}' with cron '{}'.", groupKey, cron);
+        }
+    }
+
+    private void syncStatementsForGroup(ApplicationProperties.KingBase.StatementGroup group) {
+        List<ApplicationProperties.KingBase.SqlStatement> statements = loadStatementsFromFile(group.getFile());
+        if (CollectionUtils.isEmpty(statements)) {
+            logger.debug("No statements loaded for group '{}'.", resolveGroupKey(group));
+            return;
+        }
+
+        String groupPrefix = sanitizeGroupPrefix(resolveGroupKey(group));
+        dispatchStatements(statements, groupPrefix, false);
+    }
+
+    private void dispatchStatements(List<ApplicationProperties.KingBase.SqlStatement> statements,
+                                    String groupPrefix,
+                                    boolean triggeredManually) {
+        getStateRepository();
+
+        int dispatchedStatements = 0;
+
+        for (ApplicationProperties.KingBase.SqlStatement statement : statements) {
+            if (!isExecutable(statement)) {
+                continue;
+            }
+
+            final ApplicationProperties.KingBase.SqlStatement currentStatement = statement;
+            final String statementKey = composeStatementKey(currentStatement, groupPrefix);
+            if (!acquireStatementLock(statementKey)) {
+                logger.debug("Skipping SQL statement '{}' because a previous execution is still running.", statementKey);
+                continue;
+            }
+
+            statementExecutor.submit(new Runnable() {
+                @Override
+                public void run() {
+                    try {
+                        runSingleStatement(currentStatement, statementKey);
+                    } catch (Exception ex) {
+                        logger.error("Failed to sync SQL statement '{}': {}", currentStatement.getName(), ex.getMessage(), ex);
+                    } finally {
+                        releaseStatementLock(statementKey);
+                    }
+                }
+            });
+            dispatchedStatements++;
+        }
+
+        if (triggeredManually && dispatchedStatements > 0) {
+            logger.info("Manual KingBase SQL sync dispatched {} statement task(s).", dispatchedStatements);
+        }
+    }
+
+    private String composeStatementKey(ApplicationProperties.KingBase.SqlStatement statement, String groupPrefix) {
+        String baseKey = resolveStatementKey(statement);
+        if (!StringUtils.hasText(groupPrefix)) {
+            return baseKey;
+        }
+        return groupPrefix + "__" + baseKey;
+    }
+
+    private String resolveGroupKey(ApplicationProperties.KingBase.StatementGroup group) {
+        if (group == null) {
+            return "default";
+        }
+        if (StringUtils.hasText(group.getName())) {
+            return group.getName();
+        }
+        if (StringUtils.hasText(group.getFile())) {
+            return group.getFile();
+        }
+        return "group_" + Integer.toHexString(System.identityHashCode(group));
+    }
+
+    private String sanitizeGroupPrefix(String groupPrefix) {
+        if (!StringUtils.hasText(groupPrefix)) {
+            return groupPrefix;
+        }
+        return groupPrefix.replaceAll("[^a-zA-Z0-9_-]", "_");
     }
 
     private static final class StatementChunkResult {

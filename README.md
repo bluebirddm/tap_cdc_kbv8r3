@@ -30,6 +30,10 @@ tap:
     default-fetch-size: 1000
     sync-state-table: kingbase_sync_state
     sql-statements-file: classpath:sql-statements.yml
+    sql-statement-groups:
+      - name: large-orders
+        file: classpath:sql-statements-large.yml
+        cron: "0 0 * * * *"           # 大型表每天整点跑一次
 ```
 
 ### 定义 SQL 语句
@@ -53,19 +57,35 @@ sample_orders_sync:
 - `id-column`：结果集中用于生成文档 ID 的字段。
 - `chunk-size` / `fetch-size` / `stream-results`：覆盖默认的批量控制参数。
 
+对于特别大的表，可以单独放入 `sql-statements-large.yml`，并在 `sql-statement-groups` 中指定独立的 cron 表达式：
+
+```yaml
+large_orders_sync:
+  sql: "SELECT * FROM orders WHERE id > ? ORDER BY id LIMIT :chunkSize"
+  index: kingbase_orders_large
+  id-column: id
+  chunk-size: 10000
+  fetch-size: 10000
+  stream-results: true
+```
+
 ### 运行同步
 
 1. 配置 KingBase JDBC 数据源、Elasticsearch 连接信息及上述 SQL 文件。
 2. 执行 `mvn spring-boot:run` 或通过容器方式启动应用。
 3. 启动日志会提示首次同步已提交，后续按 cron 周期执行；观察 `kingbase_sync_state` 表可验证游标更新。
 
+### 处理大型表
+
+- 每条语句都有独立锁。若上一轮执行仍未完成，后续触发只会跳过该语句，其他语句仍会按预定周期运行。
+- 将大型表拆分为带有不同 `chunk-size` 参数的多条语句，或放在独立的 YAML 文件中以便单独调度。
+- 关注执行日志：当语句被跳过时会打印 `Skipping SQL statement '<name>' because a previous execution is still running.`，据此调优 `chunk-size`、`fetch-size` 或 `sql-sync-cron`。
+
 ###### 本地测试
 
 - 确保 Maven 能加载 Kingbase JDBC 驱动：`pom.xml` 默认指向 `/opt/kingbase_bare_metal/ES/V8/Jdbc/jdk/kingbase8-8.2.0.jar`，如果安装路径不同，可通过 `-Dkingbase.jdbc.jar=/your/path/kingbase8.jar` 覆盖。
 - 在 `sys_hba.conf` 中允许 Debezium 账户进行逻辑复制，例如追加 `host    replication    debezium_user    127.0.0.1/32    trust`（或使用实际客户端地址 172.17.0.1），修改后重启 Kingbase。
 - 运行 `mvn -q -Dexec.classpathScope=test -Dexec.mainClass=KingbaseTest exec:java` 验证，首次执行会完成初始化快照。
-
-
 
 
 
