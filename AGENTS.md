@@ -35,3 +35,6 @@
 ## Agent‑Specific Notes
 - Do not change the base package `io.debezium.connector.kingbasees` or public APIs without careful review.
 - When adding new types or decoders, update the relevant registry and keep behavior consistent with existing Debezium connectors.
+- The KingBase SQL sync service now supports chunked/streamed execution, worker-pool parallelism, and persistent cursors. Observe the configuration defaults in `ApplicationProperties.KingBase` when adding new statements.
+- SQL statements can be supplied inline or via `tap.kingbase.sql-statements-file` (YAML map keyed by statement name). Prefer external files for large statement sets and document any non-default chunk/fetch sizes.
+- Startup triggers enqueue a one-time sync on the same executor as scheduled runs; avoid blocking calls inside `KingBaseSqlSyncService` to keep the scheduler responsive.
