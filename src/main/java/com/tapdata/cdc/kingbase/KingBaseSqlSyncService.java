@@ -12,17 +12,21 @@ import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 import org.springframework.util.CollectionUtils;
 import org.springframework.util.StringUtils;
+import org.springframework.core.io.Resource;
+import org.springframework.core.io.ResourceLoader;
 
 import javax.annotation.PostConstruct;
 import javax.annotation.PreDestroy;
 import java.sql.PreparedStatement;
 import java.sql.ResultSetMetaData;
 import java.time.Instant;
+import java.io.InputStream;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Collections;
 import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutionException;
@@ -32,6 +36,8 @@ import java.util.concurrent.Future;
 import java.util.concurrent.ThreadFactory;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
+
+import org.yaml.snakeyaml.Yaml;
 
 /**
  * Executes configured KingBase SQL statements and syncs results into Elasticsearch.
@@ -47,6 +53,7 @@ public class KingBaseSqlSyncService {
 
     private final ElasticsearchService elasticsearchService;
     private final ApplicationProperties.KingBase kingBaseProperties;
+    private final ResourceLoader resourceLoader;
     private final Map<String, Long> lastSyncedIds = new ConcurrentHashMap<String, Long>();
     private final AtomicBoolean manualTriggerRequested = new AtomicBoolean(false);
     private final AtomicBoolean syncInProgress = new AtomicBoolean(false);
@@ -56,9 +63,11 @@ public class KingBaseSqlSyncService {
     private volatile KingBaseSyncStateRepository stateRepository;
 
     public KingBaseSqlSyncService(ElasticsearchService elasticsearchService,
-                                  ApplicationProperties applicationProperties) {
+                                  ApplicationProperties applicationProperties,
+                                  ResourceLoader resourceLoader) {
         this.elasticsearchService = elasticsearchService;
         this.kingBaseProperties = applicationProperties.getKingbase();
+        this.resourceLoader = resourceLoader;
         this.statementExecutor = createStatementExecutor(kingBaseProperties.getStatementParallelism());
     }
 
@@ -74,7 +83,7 @@ public class KingBaseSqlSyncService {
             logger.info("KingBase SQL sync service initialized without JdbcTemplate; waiting for datasource configuration.");
         }
 
-        List<ApplicationProperties.KingBase.SqlStatement> statements = kingBaseProperties.getSqlStatements();
+        List<ApplicationProperties.KingBase.SqlStatement> statements = resolveConfiguredStatements();
         if (CollectionUtils.isEmpty(statements)) {
             logger.info("No KingBase SQL statements configured for sync.");
         } else {
@@ -109,7 +118,7 @@ public class KingBaseSqlSyncService {
                 return;
             }
 
-            List<ApplicationProperties.KingBase.SqlStatement> statements = kingBaseProperties.getSqlStatements();
+            List<ApplicationProperties.KingBase.SqlStatement> statements = resolveConfiguredStatements();
             if (CollectionUtils.isEmpty(statements)) {
                 if (triggeredManually) {
                     logger.info("Manual KingBase SQL sync requested but no statements are configured.");
@@ -171,6 +180,19 @@ public class KingBaseSqlSyncService {
     public void triggerManualSync() {
         manualTriggerRequested.set(true);
         syncStatements();
+    }
+
+    /**
+     * Enqueues a manual sync onto the statement worker pool so startup hooks can
+     * reuse the same threading model without blocking the main thread.
+     */
+    public void triggerManualSyncAsync() {
+        statementExecutor.submit(new Runnable() {
+            @Override
+            public void run() {
+                triggerManualSync();
+            }
+        });
     }
 
     private void runSingleStatement(ApplicationProperties.KingBase.SqlStatement statement) {
@@ -320,6 +342,145 @@ public class KingBaseSqlSyncService {
             }
         };
         return Executors.newFixedThreadPool(threads, threadFactory);
+    }
+
+    private List<ApplicationProperties.KingBase.SqlStatement> resolveConfiguredStatements() {
+        List<ApplicationProperties.KingBase.SqlStatement> combined = new ArrayList<ApplicationProperties.KingBase.SqlStatement>();
+        List<ApplicationProperties.KingBase.SqlStatement> inlineStatements = kingBaseProperties.getSqlStatements();
+        if (!CollectionUtils.isEmpty(inlineStatements)) {
+            combined.addAll(inlineStatements);
+        }
+        combined.addAll(loadStatementsFromFile());
+        return combined;
+    }
+
+    private List<ApplicationProperties.KingBase.SqlStatement> loadStatementsFromFile() {
+        String location = kingBaseProperties.getSqlStatementsFile();
+        if (!StringUtils.hasText(location)) {
+            return Collections.<ApplicationProperties.KingBase.SqlStatement>emptyList();
+        }
+
+        try {
+            Resource resource = resourceLoader.getResource(location);
+            if (!resource.exists()) {
+                logger.warn("Configured SQL statements file '{}' does not exist.", location);
+                return Collections.<ApplicationProperties.KingBase.SqlStatement>emptyList();
+            }
+
+            Yaml yaml = new Yaml();
+            try (InputStream inputStream = resource.getInputStream()) {
+                Object loaded = yaml.load(inputStream);
+                if (!(loaded instanceof Map)) {
+                    logger.warn("SQL statements file '{}' did not contain a YAML object.", location);
+                    return Collections.<ApplicationProperties.KingBase.SqlStatement>emptyList();
+                }
+
+                Map<?, ?> root = (Map<?, ?>) loaded;
+                List<ApplicationProperties.KingBase.SqlStatement> results = new ArrayList<ApplicationProperties.KingBase.SqlStatement>(root.size());
+                for (Map.Entry<?, ?> entry : root.entrySet()) {
+                    if (!(entry.getValue() instanceof Map)) {
+                        logger.warn("Skipping SQL statement '{}' because its configuration is not a map.", entry.getKey());
+                        continue;
+                    }
+
+                    ApplicationProperties.KingBase.SqlStatement statement = new ApplicationProperties.KingBase.SqlStatement();
+                    if (entry.getKey() != null) {
+                        statement.setName(entry.getKey().toString());
+                    }
+                    applyFileStatementProperties(statement, (Map<?, ?>) entry.getValue());
+                    results.add(statement);
+                }
+                return results;
+            }
+        } catch (Exception ex) {
+            logger.error("Failed to load KingBase SQL statements from '{}': {}", location, ex.getMessage(), ex);
+            return Collections.<ApplicationProperties.KingBase.SqlStatement>emptyList();
+        }
+    }
+
+    private void applyFileStatementProperties(ApplicationProperties.KingBase.SqlStatement statement, Map<?, ?> properties) {
+        for (Map.Entry<?, ?> entry : properties.entrySet()) {
+            if (entry.getKey() == null) {
+                continue;
+            }
+            String key = entry.getKey().toString().trim().toLowerCase(Locale.ROOT).replace("-", "").replace("_", "");
+            Object value = entry.getValue();
+
+            if ("sql".equals(key)) {
+                statement.setSql(asString(value));
+            } else if ("index".equals(key)) {
+                statement.setIndex(asString(value));
+            } else if ("idcolumn".equals(key)) {
+                statement.setIdColumn(asString(value));
+            } else if ("incremental".equals(key)) {
+                Boolean bool = asBoolean(value);
+                if (bool != null) {
+                    statement.setIncremental(bool.booleanValue());
+                }
+            } else if ("enabled".equals(key)) {
+                Boolean bool = asBoolean(value);
+                if (bool != null) {
+                    statement.setEnabled(bool.booleanValue());
+                }
+            } else if ("chunksize".equals(key)) {
+                Integer intValue = asInteger(value);
+                statement.setChunkSize(intValue);
+            } else if ("fetchsize".equals(key)) {
+                Integer intValue = asInteger(value);
+                statement.setFetchSize(intValue);
+            } else if ("streamresults".equals(key)) {
+                Boolean bool = asBoolean(value);
+                if (bool != null) {
+                    statement.setStreamResults(bool);
+                }
+            }
+        }
+    }
+
+    private String asString(Object value) {
+        if (value == null) {
+            return null;
+        }
+        return value.toString();
+    }
+
+    private Integer asInteger(Object value) {
+        if (value == null) {
+            return null;
+        }
+        if (value instanceof Number) {
+            return Integer.valueOf(((Number) value).intValue());
+        }
+        if (value instanceof CharSequence) {
+            try {
+                return Integer.valueOf(Integer.parseInt(value.toString()));
+            } catch (NumberFormatException ex) {
+                logger.warn("Unable to parse integer value '{}'.", value);
+            }
+        }
+        return null;
+    }
+
+    private Boolean asBoolean(Object value) {
+        if (value == null) {
+            return null;
+        }
+        if (value instanceof Boolean) {
+            return (Boolean) value;
+        }
+        if (value instanceof Number) {
+            return ((Number) value).intValue() != 0;
+        }
+        if (value instanceof CharSequence) {
+            String text = value.toString().trim().toLowerCase(Locale.ROOT);
+            if ("true".equals(text) || "yes".equals(text) || "on".equals(text)) {
+                return Boolean.TRUE;
+            }
+            if ("false".equals(text) || "no".equals(text) || "off".equals(text)) {
+                return Boolean.FALSE;
+            }
+        }
+        return null;
     }
 
     private boolean isExecutable(ApplicationProperties.KingBase.SqlStatement statement) {

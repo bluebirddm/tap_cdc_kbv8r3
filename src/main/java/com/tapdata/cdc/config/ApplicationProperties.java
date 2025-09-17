@@ -134,7 +134,9 @@ public class ApplicationProperties {
         private String schema = "public";
         private String driverClassName = "com.kingbase8.Driver";
         private String url = "";
+        private String sqlStatementsFile = "";
         private String sqlSyncCron = "0 */5 * * * *";
+        //Keep tap.kingbase.statement-parallelism above 1 if you rely on async startup kicks; otherwise the sync runs sequentially on the scheduler thread.
         private int statementParallelism = 4;
         private int defaultChunkSize = 0;
         private int defaultFetchSize = 1000;
@@ -235,6 +237,14 @@ public class ApplicationProperties {
 
         public void setSqlSyncCron(String sqlSyncCron) {
             this.sqlSyncCron = sqlSyncCron;
+        }
+
+        public String getSqlStatementsFile() {
+            return sqlStatementsFile;
+        }
+
+        public void setSqlStatementsFile(String sqlStatementsFile) {
+            this.sqlStatementsFile = sqlStatementsFile;
         }
 
         public int getStatementParallelism() {
