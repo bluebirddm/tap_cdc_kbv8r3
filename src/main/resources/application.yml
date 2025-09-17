@@ -1,0 +1,56 @@
+server:
+  port: 8080
+
+spring:
+  application:
+    name: tap-cdc
+
+# Tap CDC custom configuration
+tap:
+  # Elasticsearch Configuration  
+  elasticsearch:
+    host: localhost
+    port: 9200
+    username: elastic
+    password: Cdn1dG_aV*pyDxEx7ERT
+
+  # KingBase Configuration (optional)
+  kingbase:
+    enabled: true
+    sql-sync-enabled: true
+    host: localhost
+    port: 54321
+    database: TEST
+    username: SYSTEM
+    password: 123456
+    schema: PUBLIC
+    driver-class-name: com.kingbase8.Driver
+    url: ""
+    sql-statements:
+     - name: sample_orders_sync
+       sql: "SELECT * FROM orders WHERE id > ? ORDER BY id"
+       index: kingbase_orders
+       id-column: id
+#    sql-statements: []
+
+  # Debezium Configuration
+  debezium:
+    server-name: tapdata-cdc
+    # Tables to monitor (comma separated)
+    table-include-list: public.*
+    # Snapshot mode: initial, never, initial_only
+    snapshot-mode: initial
+    # Plugin name for PostgreSQL
+    plugin-name: pgoutput
+    # Offset storage (for development, use file storage)
+    offset-storage: org.apache.kafka.connect.storage.FileOffsetBackingStore
+    offset-storage-file: ./offsets.dat
+
+# Logging Configuration
+logging:
+  level:
+    com.tapdata.cdc: DEBUG
+    io.debezium: INFO
+    co.elastic: INFO
+  pattern:
+    console: "%d{yyyy-MM-dd HH:mm:ss} [%thread] %-5level %logger{36} - %msg%n"
