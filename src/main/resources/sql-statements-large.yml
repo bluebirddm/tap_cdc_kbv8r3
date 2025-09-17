@@ -1,6 +1,6 @@
-large_orders_sync:
-  sql: "SELECT * FROM orders WHERE id > ? ORDER BY id LIMIT :chunkSize"
-  index: kingbase_orders_large
+large_sync:
+  sql: "SELECT * FROM users WHERE id > ? ORDER BY id LIMIT :chunkSize"
+  index: kingbase_users
   id-column: id
   chunk-size: 10000
   fetch-size: 10000

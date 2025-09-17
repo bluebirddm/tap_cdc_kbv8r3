@@ -650,22 +650,34 @@ public class KingBaseSqlSyncService {
                 continue;
             }
 
-            String groupKey = resolveGroupKey(group);
-            String cron = StringUtils.hasText(group.getCron()) ? group.getCron() : kingBaseProperties.getSqlSyncCron();
+            final ApplicationProperties.KingBase.StatementGroup currentGroup = group;
+            String groupKey = resolveGroupKey(currentGroup);
+            String cron = StringUtils.hasText(currentGroup.getCron()) ? currentGroup.getCron() : kingBaseProperties.getSqlSyncCron();
 
-            Runnable task = new Runnable() {
+            Runnable scheduledTask = new Runnable() {
                 @Override
                 public void run() {
-                    syncStatementsForGroup(group);
+                    syncStatementsForGroup(currentGroup);
                 }
             };
 
-            ScheduledFuture<?> future = taskScheduler.schedule(task, new CronTrigger(cron));
+            ScheduledFuture<?> future = taskScheduler.schedule(scheduledTask, new CronTrigger(cron));
             ScheduledFuture<?> previous = groupSchedules.put(groupKey, future);
             if (previous != null) {
                 previous.cancel(true);
             }
             logger.info("Scheduled KingBase SQL statement group '{}' with cron '{}'.", groupKey, cron);
+
+            try {
+                taskScheduler.schedule(new Runnable() {
+                    @Override
+                    public void run() {
+                        syncStatementsForGroup(currentGroup);
+                    }
+                }, java.util.Date.from(java.time.Instant.now()));
+            } catch (Exception ex) {
+                logger.warn("Failed to execute initial sync for group '{}': {}", groupKey, ex.getMessage());
+            }
         }
     }
 
