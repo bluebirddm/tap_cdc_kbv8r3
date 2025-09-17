@@ -134,6 +134,10 @@ public class ApplicationProperties {
         private String schema = "public";
         private String driverClassName = "com.kingbase8.Driver";
         private String url = "";
+        private int statementParallelism = 4;
+        private int defaultChunkSize = 0;
+        private int defaultFetchSize = 1000;
+        private String syncStateTable = "kingbase_sync_state";
         private List<SqlStatement> sqlStatements = new ArrayList<SqlStatement>();
 
         public boolean isEnabled() {
@@ -224,6 +228,38 @@ public class ApplicationProperties {
             this.url = url;
         }
 
+        public int getStatementParallelism() {
+            return statementParallelism;
+        }
+
+        public void setStatementParallelism(int statementParallelism) {
+            this.statementParallelism = statementParallelism;
+        }
+
+        public int getDefaultChunkSize() {
+            return defaultChunkSize;
+        }
+
+        public void setDefaultChunkSize(int defaultChunkSize) {
+            this.defaultChunkSize = defaultChunkSize;
+        }
+
+        public int getDefaultFetchSize() {
+            return defaultFetchSize;
+        }
+
+        public void setDefaultFetchSize(int defaultFetchSize) {
+            this.defaultFetchSize = defaultFetchSize;
+        }
+
+        public String getSyncStateTable() {
+            return syncStateTable;
+        }
+
+        public void setSyncStateTable(String syncStateTable) {
+            this.syncStateTable = syncStateTable;
+        }
+
         public List<SqlStatement> getSqlStatements() {
             return sqlStatements;
         }
@@ -243,6 +279,9 @@ public class ApplicationProperties {
             private String idColumn = "id";
             private boolean incremental = true;
             private boolean enabled = true;
+            private Integer chunkSize;
+            private Integer fetchSize;
+            private Boolean streamResults;
 
             public String getName() {
                 return name;
@@ -290,6 +329,30 @@ public class ApplicationProperties {
 
             public void setEnabled(boolean enabled) {
                 this.enabled = enabled;
+            }
+
+            public Integer getChunkSize() {
+                return chunkSize;
+            }
+
+            public void setChunkSize(Integer chunkSize) {
+                this.chunkSize = chunkSize;
+            }
+
+            public Integer getFetchSize() {
+                return fetchSize;
+            }
+
+            public void setFetchSize(Integer fetchSize) {
+                this.fetchSize = fetchSize;
+            }
+
+            public Boolean getStreamResults() {
+                return streamResults;
+            }
+
+            public void setStreamResults(Boolean streamResults) {
+                this.streamResults = streamResults;
             }
         }
     }

@@ -26,11 +26,18 @@ tap:
     schema: PUBLIC
     driver-class-name: com.kingbase8.Driver
     url: ""
+    statement-parallelism: 4
+    default-chunk-size: 0
+    default-fetch-size: 1000
+    sync-state-table: kingbase_sync_state
     sql-statements:
      - name: sample_orders_sync
-       sql: "SELECT * FROM orders WHERE id > ? ORDER BY id"
+       sql: "SELECT * FROM orders WHERE id > ? ORDER BY id LIMIT :chunkSize"
        index: kingbase_orders
        id-column: id
+       chunk-size: 5000
+       fetch-size: 5000
+       stream-results: true
 #    sql-statements: []
 
   # Debezium Configuration
