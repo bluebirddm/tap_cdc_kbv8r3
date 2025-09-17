@@ -1,0 +1,217 @@
+# Compiled class file
+*.class
+
+# Log file
+*.log
+logs/
+*.log.*
+
+# BlueJ files
+*.ctxt
+
+# Mobile Tools for Java (J2ME)
+.mtj.tmp/
+
+# Package Files
+*.jar
+*.war
+*.nar
+*.ear
+*.zip
+*.tar.gz
+*.rar
+
+# virtual machine crash logs, see http://www.java.com/en/download/help/error_hotspot.xml
+hs_err_pid*
+replay_pid*
+
+### Maven ###
+target/
+pom.xml.tag
+pom.xml.releaseBackup
+pom.xml.versionsBackup
+pom.xml.next
+release.properties
+dependency-reduced-pom.xml
+buildNumber.properties
+.mvn/timing.properties
+.mvn/wrapper/maven-wrapper.jar
+
+### Spring Boot ###
+# Spring Boot specific files
+/spring-boot-*.log
+/spring-boot-*.log.*
+
+# Application properties with local overrides
+application-local.yml
+application-local.yaml
+application-local.properties
+application-*.local.yml
+
+### IntelliJ IDEA ###
+.idea/
+*.iws
+*.iml
+*.ipr
+out/
+!**/src/main/**/out/
+!**/src/test/**/out/
+
+### Eclipse ###
+.apt_generated
+.classpath
+.factorypath
+.project
+.settings
+.springBeans
+.sts4-cache
+bin/
+!**/src/main/**/bin/
+!**/src/test/**/bin/
+
+### NetBeans ###
+/nbproject/private/
+/nbbuild/
+/dist/
+/nbdist/
+/.nb-gradle/
+
+### VS Code ###
+.vscode/
+!.vscode/settings.json
+!.vscode/tasks.json
+!.vscode/launch.json
+!.vscode/extensions.json
+.history/
+*.code-workspace
+
+### macOS ###
+.DS_Store
+.AppleDouble
+.LSOverride
+Icon
+._*
+.DocumentRevisions-V100
+.fseventsd
+.Spotlight-V100
+.TemporaryItems
+.Trashes
+.VolumeIcon.icns
+.com.apple.timemachine.donotpresent
+.AppleDB
+.AppleDesktop
+Network Trash Folder
+Temporary Items
+.apdisk
+
+### Windows ###
+Thumbs.db
+Thumbs.db:encryptable
+ehthumbs.db
+ehthumbs_vista.db
+*.stackdump
+[Dd]esktop.ini
+$RECYCLE.BIN/
+*.cab
+*.msi
+*.msix
+*.msm
+*.msp
+*.lnk
+
+### Linux ###
+*~
+.fuse_hidden*
+.directory
+.Trash-*
+.nfs*
+
+### CDC Project Specific ###
+# Debezium offset storage
+offsets.dat
+offset-store.dat
+offsets/
+
+# Debezium schema history
+schema-history.dat
+schema-history-*.dat
+database-history.dat
+
+# Elasticsearch data (if running locally)
+data/
+elasticsearch/
+
+# Docker volumes
+docker/postgres_data/
+docker/es_data/
+*.pid
+
+# Test data
+test-output/
+test-results/
+surefire-reports/
+
+# Temporary files
+*.tmp
+*.temp
+*.swp
+*.swo
+*~.nib
+
+# Database dumps
+*.sql.gz
+*.dump
+
+# Security - Never commit secrets
+*.pem
+*.key
+*.crt
+*.p12
+.env
+.env.local
+.env.*.local
+secrets/
+credentials/
+
+# Backup files
+*.bak
+*.backup
+backup/
+
+# Node modules (if any frontend exists)
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Python virtualenv (if any scripts)
+venv/
+env/
+.Python
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Coverage reports
+coverage/
+.nyc_output/
+*.lcov
+jacoco.exec
+jacoco/
+
+# Performance test results
+jmeter/results/
+gatling/results/
+
+# Documentation build artifacts
+docs/_build/
+docs/site/
+
+# Terraform (if using for infrastructure)
+*.tfstate
+*.tfstate.*
+.terraform/
+
+# Exported conversations (from Claude)
+*-caveat-the-messages-below-were-generated-by-the-u.txt
+claude-export-*.txt
