@@ -87,7 +87,7 @@ public class KingBaseSqlSyncService {
         statementExecutor.shutdown();
     }
 
-    @Scheduled(fixedDelayString = "${tap.kingbase.sql-sync-interval-ms:10000}")
+    @Scheduled(cron = "${tap.kingbase.sql-sync-cron:0 */5 * * * *}")
     public void syncStatements() {
         boolean triggeredManually = manualTriggerRequested.getAndSet(false);
 

@@ -26,6 +26,7 @@ tap:
     schema: PUBLIC
     driver-class-name: com.kingbase8.Driver
     url: ""
+    sql-sync-cron: "0 */15 * * * *"
     statement-parallelism: 4
     default-chunk-size: 0
     default-fetch-size: 1000

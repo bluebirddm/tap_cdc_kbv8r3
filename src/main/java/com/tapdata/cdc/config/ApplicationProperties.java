@@ -134,6 +134,7 @@ public class ApplicationProperties {
         private String schema = "public";
         private String driverClassName = "com.kingbase8.Driver";
         private String url = "";
+        private String sqlSyncCron = "0 */5 * * * *";
         private int statementParallelism = 4;
         private int defaultChunkSize = 0;
         private int defaultFetchSize = 1000;
@@ -226,6 +227,14 @@ public class ApplicationProperties {
 
         public void setUrl(String url) {
             this.url = url;
+        }
+
+        public String getSqlSyncCron() {
+            return sqlSyncCron;
+        }
+
+        public void setSqlSyncCron(String sqlSyncCron) {
+            this.sqlSyncCron = sqlSyncCron;
         }
 
         public int getStatementParallelism() {
