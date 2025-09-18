@@ -69,6 +69,8 @@ large_orders_sync:
   stream-results: true
 ```
 
+- **热更新提示**：打包成可执行 JAR 后，可将 `sql-statements.yml` 或 `sql-statements-large.yml` 拷贝到与 JAR 相同的目录。应用会优先读取这些外部文件，其次才回退到包内的 classpath 资源。
+
 ### 运行同步
 
 1. 配置 KingBase JDBC 数据源、Elasticsearch 连接信息及上述 SQL 文件。
@@ -98,4 +100,3 @@ Use your app’s base URL and send simple HTTP calls—assuming it’s running l
   curl -X PUT http://localhost:8080/kingbase/sync-groups/refresh
 
 Add -H "Content-Type: application/json" only if you start sending JSON payloads (not required for these endpoints).
-

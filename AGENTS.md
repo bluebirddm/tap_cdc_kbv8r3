@@ -40,3 +40,4 @@
 - Startup triggers enqueue a one-time sync on the same executor as scheduled runs; avoid blocking calls inside `KingBaseSqlSyncService` to keep the scheduler responsive.
 - Each statement is guarded by its own execution lock. If a long-running statement is still processing when the cron fires again, the service skips only that statement while continuing to dispatch the rest.
 - Use `tap.kingbase.sql-statement-groups` to give heavy tables their own YAML file and cron expression. Group keys are prefixed into the statement cursor so state tracking remains independent across groups.
+- When paths are declared with `classpath:` the runtime still checks for a file of the same name next to the deployed JAR; place editable copies there for hot overrides.

@@ -24,11 +24,11 @@ import java.sql.ResultSetMetaData;
 import java.time.Instant;
 import java.io.InputStream;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
-import java.util.Collections;
 import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
@@ -37,6 +37,10 @@ import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.ThreadFactory;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
+
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 
 import org.yaml.snakeyaml.Yaml;
 
@@ -342,41 +346,88 @@ public class KingBaseSqlSyncService {
             return Collections.<ApplicationProperties.KingBase.SqlStatement>emptyList();
         }
 
-        try {
-            Resource resource = resourceLoader.getResource(location);
-            if (!resource.exists()) {
-                logger.warn("Configured SQL statements file '{}' does not exist.", location);
+        Resource resource = resolveStatementsResource(location);
+        if (resource == null || !resource.exists() || !resource.isReadable()) {
+            logger.warn("Configured SQL statements file '{}' could not be found or is not readable.", location);
+            return Collections.<ApplicationProperties.KingBase.SqlStatement>emptyList();
+        }
+
+        try (InputStream inputStream = resource.getInputStream()) {
+            Yaml yaml = new Yaml();
+            Object loaded = yaml.load(inputStream);
+            if (!(loaded instanceof Map)) {
+                logger.warn("SQL statements file '{}' did not contain a YAML object.", resource.getDescription());
                 return Collections.<ApplicationProperties.KingBase.SqlStatement>emptyList();
             }
 
-            Yaml yaml = new Yaml();
-            try (InputStream inputStream = resource.getInputStream()) {
-                Object loaded = yaml.load(inputStream);
-                if (!(loaded instanceof Map)) {
-                    logger.warn("SQL statements file '{}' did not contain a YAML object.", location);
-                    return Collections.<ApplicationProperties.KingBase.SqlStatement>emptyList();
+            Map<?, ?> root = (Map<?, ?>) loaded;
+            List<ApplicationProperties.KingBase.SqlStatement> results = new ArrayList<ApplicationProperties.KingBase.SqlStatement>(root.size());
+            for (Map.Entry<?, ?> entry : root.entrySet()) {
+                if (!(entry.getValue() instanceof Map)) {
+                    logger.warn("Skipping SQL statement '{}' because its configuration is not a map.", entry.getKey());
+                    continue;
                 }
 
-                Map<?, ?> root = (Map<?, ?>) loaded;
-                List<ApplicationProperties.KingBase.SqlStatement> results = new ArrayList<ApplicationProperties.KingBase.SqlStatement>(root.size());
-                for (Map.Entry<?, ?> entry : root.entrySet()) {
-                    if (!(entry.getValue() instanceof Map)) {
-                        logger.warn("Skipping SQL statement '{}' because its configuration is not a map.", entry.getKey());
-                        continue;
-                    }
-
-                    ApplicationProperties.KingBase.SqlStatement statement = new ApplicationProperties.KingBase.SqlStatement();
-                    if (entry.getKey() != null) {
-                        statement.setName(entry.getKey().toString());
-                    }
-                    applyFileStatementProperties(statement, (Map<?, ?>) entry.getValue());
-                    results.add(statement);
+                ApplicationProperties.KingBase.SqlStatement statement = new ApplicationProperties.KingBase.SqlStatement();
+                if (entry.getKey() != null) {
+                    statement.setName(entry.getKey().toString());
                 }
-                return results;
+                applyFileStatementProperties(statement, (Map<?, ?>) entry.getValue());
+                results.add(statement);
             }
+            return results;
         } catch (Exception ex) {
-            logger.error("Failed to load KingBase SQL statements from '{}': {}", location, ex.getMessage(), ex);
+            logger.error("Failed to load KingBase SQL statements from '{}': {}", resource.getDescription(), ex.getMessage(), ex);
             return Collections.<ApplicationProperties.KingBase.SqlStatement>emptyList();
+        }
+    }
+
+    private Resource resolveStatementsResource(String location) {
+        String normalizedLocation = location.trim();
+
+        // Prefer a file system resource located relative to the working directory or the provided path.
+        Resource fileResource = resolveFileSystemResource(normalizedLocation);
+        if (fileResource != null && fileResource.exists() && fileResource.isReadable()) {
+            return fileResource;
+        }
+
+        // Fall back to the original resource location (classpath:, file:, etc.).
+        Resource resource = resourceLoader.getResource(normalizedLocation);
+        if (normalizedLocation.startsWith("classpath:")) {
+            // Allow overriding classpath resources with a file of the same name placed next to the JAR.
+            String fallbackName = normalizedLocation.substring("classpath:".length());
+            Resource override = resolveFileSystemResource(fallbackName);
+            if (override != null && override.exists() && override.isReadable()) {
+                return override;
+            }
+        }
+        return resource;
+    }
+
+    private Resource resolveFileSystemResource(String candidate) {
+        if (!StringUtils.hasText(candidate) || candidate.startsWith("classpath:")) {
+            return null;
+        }
+
+        String withoutPrefix = candidate;
+        if (candidate.startsWith("file:")) {
+            withoutPrefix = candidate.substring("file:".length());
+        }
+
+        Path path = Paths.get(withoutPrefix);
+        if (!path.isAbsolute()) {
+            path = Paths.get(System.getProperty("user.dir"), withoutPrefix);
+        }
+
+        try {
+            Path normalized = path.toAbsolutePath().normalize();
+            if (!Files.exists(normalized)) {
+                return null;
+            }
+            return resourceLoader.getResource("file:" + normalized.toString());
+        } catch (Exception ex) {
+            logger.debug("Unable to resolve file system resource for '{}': {}", candidate, ex.getMessage());
+            return null;
         }
     }
 
