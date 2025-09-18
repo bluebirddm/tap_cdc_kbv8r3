@@ -22,6 +22,7 @@
 ```yaml
 tap:
   kingbase:
+    config-file: kingbase.yml
     enabled: true
     sql-sync-enabled: true
     sql-sync-cron: "0 */15 * * * *"   # 每 15 分钟执行一次
@@ -35,12 +36,44 @@ tap:
         file: classpath:sql-statements-large.yml
         cron: "0 0 * * * *"           # 大型表每天整点跑一次
   elasticsearch:
-    # 可选：外部连接配置文件，未指定时默认尝试读取工作目录的 elasticsearch.yml
-    config-file: classpath:elasticsearch.yml
-  kingbase:
-    # 可选：外部连接配置文件，未指定时默认尝试读取工作目录的 kingbase.yml
-    config-file: classpath:kingbase.yml
+    config-file: elasticsearch.yml
+    host: localhost
+    port: 9200
+    username: elastic
+    password: changeme
+    bulk-size: 2000
+    bulk-flush-interval-seconds: 5
+    bulk-threads: 2
 ```
+
+### 外部连接配置
+
+- 在 JAR 同目录放置 `kingbase.yml`、`elasticsearch.yml` 可覆盖连接信息和批量参数，例如：
+
+`kingbase.yml`
+```yaml
+host: localhost
+port: 54321
+database: TEST
+username: SYSTEM
+password: 123456
+schema: PUBLIC
+driver-class-name: com.kingbase8.Driver
+url: ""
+```
+
+`elasticsearch.yml`
+```yaml
+host: localhost
+port: 9200
+username: elastic
+password: changeme
+bulk-size: 2000
+bulk-flush-interval-seconds: 5
+bulk-threads: 2
+```
+
+- 也可通过 `tap.kingbase.config-file` 与 `tap.elasticsearch.config-file` 指定绝对路径。
 
 ### 定义 SQL 语句
 
@@ -76,35 +109,6 @@ large_orders_sync:
   stream-results: true
 ```
 
-- **热更新提示**：打包成可执行 JAR 后，可将 `sql-statements.yml` 或 `sql-statements-large.yml` 拷贝到与 JAR 相同的目录。应用会优先读取这些外部文件，其次才回退到包内的 classpath 资源。
-
-### 提取连接信息（外部文件）
-
-- 你可以把 ES 与 KingBase 的连接信息分别放到与 JAR 同目录的 `elasticsearch.yml` 与 `kingbase.yml`。
-- 应用启动时会优先读取这些外部文件，格式示例：
-
-`elasticsearch.yml`
-```yaml
-host: 127.0.0.1
-port: 9200
-username: elastic
-password: changeme
-```
-
-`kingbase.yml`
-```yaml
-host: 127.0.0.1
-port: 54321
-database: TEST
-username: SYSTEM
-password: 123456
-schema: PUBLIC
-driver-class-name: com.kingbase8.Driver
-url: ""
-```
-
-- 也可通过 `tap.elasticsearch.config-file` 与 `tap.kingbase.config-file` 指定绝对/相对路径或 classpath 位置。
-
 ### 运行同步
 
 1. 配置 KingBase JDBC 数据源、Elasticsearch 连接信息及上述 SQL 文件。
@@ -122,6 +126,12 @@ url: ""
 - 重新装载并计划语句分组（修改外部 YAML 后调用）：
   `curl -X PUT http://localhost:8080/kingbase/sync-groups/refresh`
 
+### 同步游标提示
+
+- 若 ID 列为字符串类型，针对 KingBase 的比较 `WHERE "ID" > ''` 不会命中任何记录。应用首次运行时会自动使用空格 `' '` 作为初始游标；如需重置增量状态，请先 `DELETE FROM kingbase_sync_state;`，随后在首次查询时仍使用 `' '` 作为游标。
+
+- 若 ID 列为字符串类型，针对 KingBase 的比较 `WHERE "ID" > ''` 不会命中任何记录。应用首次运行时会自动使用空格 `' '` 作为初始游标；如果手动触发或清空状态表，请确保游标初值为 `' '`，或在清理 `kingbase_sync_state` 后重新启动。
+
 ### 控制日志量
 
 - 批量入队日志采样：为避免高表量导致 DEBUG 日志过多，`ElasticsearchService` 对“Queued ... operation”日志做了采样，默认每 1000 条打印 1 次。
@@ -134,6 +144,25 @@ url: ""
     level:
       com.tapdata.cdc.elasticsearch.ElasticsearchService: INFO
   ```
+
+### Elasticsearch 批量参数
+
+- `tap.elasticsearch.bulk-size`：单批次最多提交的操作数（默认 1000）。
+- `tap.elasticsearch.bulk-flush-interval-seconds`：后台定时刷新间隔（默认 5 秒）。
+- `tap.elasticsearch.bulk-threads`：用于 bulk 调度的线程数量（默认 2）。
+- 可在 JAR 同目录放置 `elasticsearch.yml` 覆盖以上及连接信息，例如：
+
+```yaml
+host: localhost
+port: 9200
+username: elastic
+password: changeme
+bulk-size: 5000
+bulk-flush-interval-seconds: 3
+bulk-threads: 4
+```
+
+- 日志中会包含各索引的操作数量，便于定位热点索引。
 
 ### 处理大型表
 

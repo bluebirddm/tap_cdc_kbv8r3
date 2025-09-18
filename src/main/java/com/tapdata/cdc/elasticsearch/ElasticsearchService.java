@@ -1,5 +1,6 @@
 package com.tapdata.cdc.elasticsearch;
 
+import com.tapdata.cdc.config.ApplicationProperties;
 import org.elasticsearch.action.bulk.BulkItemResponse;
 import org.elasticsearch.action.bulk.BulkRequest;
 import org.elasticsearch.action.bulk.BulkResponse;
@@ -19,6 +20,7 @@ import org.springframework.stereotype.Service;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.BlockingQueue;
@@ -26,6 +28,7 @@ import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 
 @Service
@@ -33,21 +36,38 @@ public class ElasticsearchService {
 
     private static final Logger logger = LoggerFactory.getLogger(ElasticsearchService.class);
 
-    private static final int BULK_SIZE = 100;
-    private static final int BULK_FLUSH_INTERVAL_SECONDS = 5;
-
-    @Autowired
-    private RestHighLevelClient elasticsearchClient;
-
-    @Autowired
-    private IndexManager indexManager;
-
-    private final BlockingQueue<BulkWriteOperation> bulkQueue = new LinkedBlockingQueue<BulkWriteOperation>();
-    private final ScheduledExecutorService bulkProcessor = new ScheduledThreadPoolExecutor(1);
-    private final AtomicLong queuedLogCounter = new AtomicLong(0L);
     private static final long LOG_EVERY = Long.getLong("tap.es.logEvery", 1000L);
 
-    public ElasticsearchService() {
+    private final RestHighLevelClient elasticsearchClient;
+    private final IndexManager indexManager;
+    private final BlockingQueue<BulkWriteOperation> bulkQueue = new LinkedBlockingQueue<BulkWriteOperation>();
+    private final AtomicLong queuedLogCounter = new AtomicLong(0L);
+    private final int bulkSize;
+    private final int bulkFlushIntervalSeconds;
+    private final int bulkThreads;
+    private final ScheduledExecutorService bulkProcessor;
+    private Thread queueMonitor;
+
+    @Autowired
+    public ElasticsearchService(RestHighLevelClient elasticsearchClient,
+                                 IndexManager indexManager,
+                                 ApplicationProperties applicationProperties) {
+        this.elasticsearchClient = elasticsearchClient;
+        this.indexManager = indexManager;
+
+        ApplicationProperties.Elasticsearch config = applicationProperties.getElasticsearch();
+        this.bulkSize = Math.max(1, config.getBulkSize());
+        this.bulkFlushIntervalSeconds = Math.max(1, config.getBulkFlushIntervalSeconds());
+        this.bulkThreads = Math.max(1, config.getBulkThreads());
+
+        AtomicInteger threadCounter = new AtomicInteger(0);
+        this.bulkProcessor = new ScheduledThreadPoolExecutor(this.bulkThreads, runnable -> {
+            Thread thread = new Thread(runnable);
+            thread.setName("es-bulk-scheduler-" + threadCounter.incrementAndGet());
+            thread.setDaemon(true);
+            return thread;
+        });
+
         startBulkProcessor();
     }
 
@@ -94,33 +114,25 @@ public class ElasticsearchService {
     }
 
     private void startBulkProcessor() {
-        bulkProcessor.scheduleAtFixedRate(new Runnable() {
-            @Override
-            public void run() {
-                processBulkQueue();
-            }
-        },
-            BULK_FLUSH_INTERVAL_SECONDS,
-            BULK_FLUSH_INTERVAL_SECONDS,
+        bulkProcessor.scheduleAtFixedRate(this::processBulkQueue,
+            bulkFlushIntervalSeconds,
+            bulkFlushIntervalSeconds,
             TimeUnit.SECONDS
         );
 
-        Thread queueMonitor = new Thread(new Runnable() {
-            @Override
-            public void run() {
-                while (!Thread.currentThread().isInterrupted()) {
-                    try {
-                        if (bulkQueue.size() >= BULK_SIZE) {
-                            processBulkQueue();
-                        }
-                        Thread.sleep(1000);
-                    } catch (InterruptedException e) {
-                        Thread.currentThread().interrupt();
-                        break;
+        queueMonitor = new Thread(() -> {
+            while (!Thread.currentThread().isInterrupted()) {
+                try {
+                    if (bulkQueue.size() >= bulkSize) {
+                        processBulkQueue();
                     }
+                    Thread.sleep(1000);
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    break;
                 }
             }
-        });
+        }, "es-bulk-queue-monitor");
         queueMonitor.setDaemon(true);
         queueMonitor.start();
     }
@@ -131,13 +143,14 @@ public class ElasticsearchService {
         }
 
         List<BulkWriteOperation> operations = new ArrayList<BulkWriteOperation>();
-        bulkQueue.drainTo(operations, BULK_SIZE);
+        bulkQueue.drainTo(operations, bulkSize);
 
         if (operations.isEmpty()) {
             return;
         }
 
         BulkRequest bulkRequest = new BulkRequest();
+        Map<String, Integer> perIndex = new LinkedHashMap<String, Integer>();
         for (BulkWriteOperation operation : operations) {
             switch (operation.type) {
                 case INDEX:
@@ -156,6 +169,7 @@ public class ElasticsearchService {
                 default:
                     break;
             }
+            perIndex.merge(operation.indexName, 1, Integer::sum);
         }
 
         if (bulkRequest.numberOfActions() == 0) {
@@ -173,7 +187,9 @@ public class ElasticsearchService {
                     }
                 }
             } else {
-                logger.debug("Bulk operation completed successfully: {} operations", operations.size());
+                if (logger.isDebugEnabled()) {
+                    logger.debug("Bulk operation completed successfully: total={}, indices={}", operations.size(), perIndex);
+                }
             }
 
         } catch (IOException e) {
@@ -238,6 +254,15 @@ public class ElasticsearchService {
         processBulkQueue();
 
         bulkProcessor.shutdown();
+
+        if (queueMonitor != null) {
+            queueMonitor.interrupt();
+            try {
+                queueMonitor.join(5000);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            }
+        }
 
         try {
             if (!bulkProcessor.awaitTermination(30, TimeUnit.SECONDS)) {

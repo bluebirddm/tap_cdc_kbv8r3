@@ -4,4 +4,5 @@ large_users_ync:
   id-column: id
   chunk-size: 10000
   fetch-size: 10000
+  enabled: false
   stream-results: true

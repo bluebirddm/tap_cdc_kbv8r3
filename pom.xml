@@ -31,7 +31,6 @@
         <spring.boot.version>2.7.18</spring.boot.version>
         <elasticsearch.client.version>7.17.18</elasticsearch.client.version>
         <kingbase.jdbc.version>8.2.0</kingbase.jdbc.version>
-        <kingbase.jdbc.jar>/opt/kingbase_bare_metal/ES/V8/Jdbc/jdk/kingbase8-8.2.0.jar</kingbase.jdbc.jar>
     </properties>
 
     <dependencies>
@@ -89,8 +88,6 @@
             <groupId>cn.com.kingbase</groupId>
             <artifactId>kingbase8</artifactId>
             <version>${kingbase.jdbc.version}</version>
-            <scope>system</scope>
-            <systemPath>${kingbase.jdbc.jar}</systemPath>
         </dependency>
     </dependencies>
 

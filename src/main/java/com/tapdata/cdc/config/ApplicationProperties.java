@@ -31,7 +31,10 @@ public class ApplicationProperties {
         private int port = 9200;
         private String username = "";
         private String password = "";
-        private String configFile = ""; // Optional external YAML path
+        private String configFile = "";
+        private int bulkSize = 1000;
+        private int bulkFlushIntervalSeconds = 5;
+        private int bulkThreads = 2;
 
         public String getHost() {
             return host;
@@ -71,6 +74,30 @@ public class ApplicationProperties {
 
         public void setConfigFile(String configFile) {
             this.configFile = configFile;
+        }
+
+        public int getBulkSize() {
+            return bulkSize;
+        }
+
+        public void setBulkSize(int bulkSize) {
+            this.bulkSize = bulkSize;
+        }
+
+        public int getBulkFlushIntervalSeconds() {
+            return bulkFlushIntervalSeconds;
+        }
+
+        public void setBulkFlushIntervalSeconds(int bulkFlushIntervalSeconds) {
+            this.bulkFlushIntervalSeconds = bulkFlushIntervalSeconds;
+        }
+
+        public int getBulkThreads() {
+            return bulkThreads;
+        }
+
+        public void setBulkThreads(int bulkThreads) {
+            this.bulkThreads = bulkThreads;
         }
     }
 

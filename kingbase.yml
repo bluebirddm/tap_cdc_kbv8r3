@@ -1,0 +1,8 @@
+host: localhost
+port: 54321
+database: TEST
+username: SYSTEM
+password: 123456
+schema: PUBLIC
+driver-class-name: com.kingbase8.Driver
+url: ""

@@ -9,13 +9,18 @@ spring:
 tap:
   # Elasticsearch Configuration  
   elasticsearch:
+    config-file: elasticsearch.yml
     host: localhost
     port: 9200
     username: elastic
     password: Cdn1dG_aV*pyDxEx7ERT
+    bulk-size: 1000
+    bulk-flush-interval-seconds: 5
+    bulk-threads: 2
 
   # KingBase Configuration (optional)
   kingbase:
+    config-file: kingbase.yml
     enabled: true
     sql-sync-enabled: true
     host: localhost

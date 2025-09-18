@@ -275,10 +275,6 @@ public class KingBaseSqlSyncService {
                 int parameterIndex = 1;
                 if (requiresParam) {
                     Object param = convertCursorParam(lastCursor, statement);
-                    if (param == null) {
-                        // Use sensible minimums to avoid NULL semantics in comparisons
-                        param = isNumericId(statement) ? 0L : "";
-                    }
                     preparedStatement.setObject(parameterIndex++, param);
                 }
                 return preparedStatement;
@@ -451,6 +447,8 @@ public class KingBaseSqlSyncService {
                 statement.setIndex(asString(value));
             } else if ("idcolumn".equals(key)) {
                 statement.setIdColumn(asString(value));
+            } else if ("idtype".equals(key)) {
+                statement.setIdType(asString(value));
             } else if ("incremental".equals(key)) {
                 Boolean bool = asBoolean(value);
                 if (bool != null) {
@@ -827,8 +825,8 @@ public class KingBaseSqlSyncService {
     }
 
     private Object convertCursorParam(String cursor, ApplicationProperties.KingBase.SqlStatement statement) {
-        if (cursor == null) {
-            return null;
+        if (cursor == null || cursor.isEmpty()) {
+            return isNumericId(statement) ? 0L : " ";
         }
         if (isNumericId(statement)) {
             try {
