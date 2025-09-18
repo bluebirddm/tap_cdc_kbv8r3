@@ -34,6 +34,12 @@ tap:
       - name: large-orders
         file: classpath:sql-statements-large.yml
         cron: "0 0 * * * *"           # 大型表每天整点跑一次
+  elasticsearch:
+    # 可选：外部连接配置文件，未指定时默认尝试读取工作目录的 elasticsearch.yml
+    config-file: classpath:elasticsearch.yml
+  kingbase:
+    # 可选：外部连接配置文件，未指定时默认尝试读取工作目录的 kingbase.yml
+    config-file: classpath:kingbase.yml
 ```
 
 ### 定义 SQL 语句
@@ -71,6 +77,33 @@ large_orders_sync:
 ```
 
 - **热更新提示**：打包成可执行 JAR 后，可将 `sql-statements.yml` 或 `sql-statements-large.yml` 拷贝到与 JAR 相同的目录。应用会优先读取这些外部文件，其次才回退到包内的 classpath 资源。
+
+### 提取连接信息（外部文件）
+
+- 你可以把 ES 与 KingBase 的连接信息分别放到与 JAR 同目录的 `elasticsearch.yml` 与 `kingbase.yml`。
+- 应用启动时会优先读取这些外部文件，格式示例：
+
+`elasticsearch.yml`
+```yaml
+host: 127.0.0.1
+port: 9200
+username: elastic
+password: changeme
+```
+
+`kingbase.yml`
+```yaml
+host: 127.0.0.1
+port: 54321
+database: TEST
+username: SYSTEM
+password: 123456
+schema: PUBLIC
+driver-class-name: com.kingbase8.Driver
+url: ""
+```
+
+- 也可通过 `tap.elasticsearch.config-file` 与 `tap.kingbase.config-file` 指定绝对/相对路径或 classpath 位置。
 
 ### 运行同步
 

@@ -233,7 +233,7 @@ public class KingBaseSqlSyncService {
             return 0;
         }
         int deleted = repository.deleteAll();
-        lastSyncedIds.clear();
+        lastSyncedCursors.clear();
         if (deleted > 0) {
             logger.info("Cleared {} entry(ies) from KingBase sync state table '{}'.", deleted, kingBaseProperties.getSyncStateTable());
         } else {

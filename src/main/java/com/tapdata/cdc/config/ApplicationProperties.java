@@ -31,6 +31,7 @@ public class ApplicationProperties {
         private int port = 9200;
         private String username = "";
         private String password = "";
+        private String configFile = ""; // Optional external YAML path
 
         public String getHost() {
             return host;
@@ -62,6 +63,14 @@ public class ApplicationProperties {
 
         public void setPassword(String password) {
             this.password = password;
+        }
+
+        public String getConfigFile() {
+            return configFile;
+        }
+
+        public void setConfigFile(String configFile) {
+            this.configFile = configFile;
         }
     }
 
@@ -134,6 +143,7 @@ public class ApplicationProperties {
         private String schema = "public";
         private String driverClassName = "com.kingbase8.Driver";
         private String url = "";
+        private String configFile = ""; // Optional external YAML path
         private String sqlStatementsFile = "";
         private String sqlSyncCron = "0 */5 * * * *";
         private int statementParallelism = 4;
@@ -229,6 +239,14 @@ public class ApplicationProperties {
 
         public void setUrl(String url) {
             this.url = url;
+        }
+
+        public String getConfigFile() {
+            return configFile;
+        }
+
+        public void setConfigFile(String configFile) {
+            this.configFile = configFile;
         }
 
         public String getSqlSyncCron() {
