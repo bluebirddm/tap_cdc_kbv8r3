@@ -88,5 +88,14 @@ large_orders_sync:
 - 运行 `mvn -q -Dexec.classpathScope=test -Dexec.mainClass=KingbaseTest exec:java` 验证，首次执行会完成初始化快照。
 
 
+Use your app’s base URL and send simple HTTP calls—assuming it’s running locally on port 8080:
 
+- Trigger the sync immediately
+  curl -X POST http://localhost:8080/kingbase/sync
+- Clear every row in the configured sync-state table
+  curl -X DELETE http://localhost:8080/kingbase/sync-state
+- Rebuild the scheduled statement groups (use after editing group YAML)
+  curl -X PUT http://localhost:8080/kingbase/sync-groups/refresh
+
+Add -H "Content-Type: application/json" only if you start sending JSON payloads (not required for these endpoints).
 

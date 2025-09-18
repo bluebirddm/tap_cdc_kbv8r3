@@ -82,4 +82,14 @@ class KingBaseSyncStateRepository {
             logger.warn("Failed to persist sync state for '{}': {}", statementName, ex.getMessage());
         }
     }
+
+    int deleteAll() {
+        ensureInitialized();
+        try {
+            return jdbcTemplate.update(String.format("DELETE FROM %s", tableName));
+        } catch (Exception ex) {
+            logger.warn("Failed to clear sync state table '{}': {}", tableName, ex.getMessage());
+            return 0;
+        }
+    }
 }

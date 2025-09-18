@@ -222,6 +222,22 @@ public class KingBaseSqlSyncService {
         scheduleStatementGroups();
     }
 
+    public int clearSyncState() {
+        KingBaseSyncStateRepository repository = getStateRepository();
+        if (repository == null) {
+            logger.warn("Cannot clear KingBase sync state because JdbcTemplate is not configured.");
+            return 0;
+        }
+        int deleted = repository.deleteAll();
+        lastSyncedIds.clear();
+        if (deleted > 0) {
+            logger.info("Cleared {} entry(ies) from KingBase sync state table '{}'.", deleted, kingBaseProperties.getSyncStateTable());
+        } else {
+            logger.info("KingBase sync state table '{}' was already empty.", kingBaseProperties.getSyncStateTable());
+        }
+        return deleted;
+    }
+
     private StatementChunkResult executeStatementChunk(ApplicationProperties.KingBase.SqlStatement statement,
                                                        String statementKey,
                                                        String baseSql,

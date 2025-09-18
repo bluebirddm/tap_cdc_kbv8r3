@@ -1,6 +1,6 @@
-large_sync:
+large_susers_ync:
   sql: "SELECT * FROM users WHERE id > ? ORDER BY id LIMIT :chunkSize"
-  index: kingbase_users
+  index: users
   id-column: id
   chunk-size: 10000
   fetch-size: 10000
