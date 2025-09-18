@@ -26,6 +26,7 @@ import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicLong;
 
 @Service
 public class ElasticsearchService {
@@ -43,6 +44,8 @@ public class ElasticsearchService {
 
     private final BlockingQueue<BulkWriteOperation> bulkQueue = new LinkedBlockingQueue<BulkWriteOperation>();
     private final ScheduledExecutorService bulkProcessor = new ScheduledThreadPoolExecutor(1);
+    private final AtomicLong queuedLogCounter = new AtomicLong(0L);
+    private static final long LOG_EVERY = Long.getLong("tap.es.logEvery", 1000L);
 
     public ElasticsearchService() {
         startBulkProcessor();
@@ -52,7 +55,7 @@ public class ElasticsearchService {
         try {
             indexManager.ensureIndexExists(indexName);
             bulkQueue.offer(BulkWriteOperation.index(indexName, documentId, new HashMap<String, Object>(document)));
-            logger.debug("Queued index operation: index={}, id={}", indexName, documentId);
+            maybeLogQueued("index", indexName, documentId);
         } catch (Exception e) {
             logger.error("Error indexing document: index={}, id={}", indexName, documentId, e);
             indexDocumentDirectly(indexName, documentId, document);
@@ -63,7 +66,7 @@ public class ElasticsearchService {
         try {
             indexManager.ensureIndexExists(indexName);
             bulkQueue.offer(BulkWriteOperation.update(indexName, documentId, new HashMap<String, Object>(document)));
-            logger.debug("Queued update operation: index={}, id={}", indexName, documentId);
+            maybeLogQueued("update", indexName, documentId);
         } catch (Exception e) {
             logger.error("Error updating document: index={}, id={}", indexName, documentId, e);
             updateDocumentDirectly(indexName, documentId, document);
@@ -73,10 +76,20 @@ public class ElasticsearchService {
     public void deleteDocument(String indexName, String documentId) {
         try {
             bulkQueue.offer(BulkWriteOperation.delete(indexName, documentId));
-            logger.debug("Queued delete operation: index={}, id={}", indexName, documentId);
+            maybeLogQueued("delete", indexName, documentId);
         } catch (Exception e) {
             logger.error("Error deleting document: index={}, id={}", indexName, documentId, e);
             deleteDocumentDirectly(indexName, documentId);
+        }
+    }
+
+    private void maybeLogQueued(String op, String indexName, String documentId) {
+        if (!logger.isDebugEnabled()) {
+            return;
+        }
+        long count = queuedLogCounter.incrementAndGet();
+        if (LOG_EVERY <= 1L || (count % LOG_EVERY == 0L)) {
+            logger.debug("Queued {} operations so far; last op={}, index={}, id={}", count, op, indexName, documentId);
         }
     }
 

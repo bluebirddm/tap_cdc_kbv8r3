@@ -43,3 +43,4 @@
 - When paths are declared with `classpath:` the runtime still checks for a file of the same name next to the deployed JAR; place editable copies there for hot overrides.
 - Cursor type: statements support numeric or string cursors. Set `id-type: number|string` per statement in YAML. The sync state table now includes a `cursor_value` column; code keeps backward compatibility with the legacy numeric `last_id`.
 - API endpoints for ops: `POST /kingbase/sync`, `DELETE /kingbase/sync-state`, `PUT /kingbase/sync-groups/refresh`.
+- Log sampling: per-document queue logs in `ElasticsearchService` are sampled to reduce noise. Control with JVM property `-Dtap.es.logEvery=<N>` (default 1000). Raise `N` in production to further quiet logs, or set the class log level to INFO.

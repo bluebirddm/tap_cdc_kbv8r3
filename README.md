@@ -89,6 +89,19 @@ large_orders_sync:
 - 重新装载并计划语句分组（修改外部 YAML 后调用）：
   `curl -X PUT http://localhost:8080/kingbase/sync-groups/refresh`
 
+### 控制日志量
+
+- 批量入队日志采样：为避免高表量导致 DEBUG 日志过多，`ElasticsearchService` 对“Queued ... operation”日志做了采样，默认每 1000 条打印 1 次。
+- 通过 JVM 系统属性调整采样频率（数值越大，日志越少）：
+  - 运行 JAR：`java -Dtap.es.logEvery=5000 -jar target/debezium-kingbase-1.0-SNAPSHOT.jar`
+  - Spring Boot 运行：`mvn spring-boot:run -Dspring-boot.run.jvmArguments="-Dtap.es.logEvery=5000"`
+- 也可以直接提高类日志级别来完全关闭该类的 DEBUG：
+  ```yaml
+  logging:
+    level:
+      com.tapdata.cdc.elasticsearch.ElasticsearchService: INFO
+  ```
+
 ### 处理大型表
 
 - 每条语句都有独立锁。若上一轮执行仍未完成，后续触发只会跳过该语句，其他语句仍会按预定周期运行。

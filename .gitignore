@@ -138,8 +138,8 @@ schema-history-*.dat
 database-history.dat
 
 # Elasticsearch data (if running locally)
-data/
-elasticsearch/
+#data/
+#elasticsearch/
 
 # Docker volumes
 docker/postgres_data/
