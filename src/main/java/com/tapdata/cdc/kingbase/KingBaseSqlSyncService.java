@@ -59,7 +59,7 @@ public class KingBaseSqlSyncService {
     private final ElasticsearchService elasticsearchService;
     private final ApplicationProperties.KingBase kingBaseProperties;
     private final ResourceLoader resourceLoader;
-    private final Map<String, Long> lastSyncedIds = new ConcurrentHashMap<String, Long>();
+    private final Map<String, String> lastSyncedCursors = new ConcurrentHashMap<String, String>();
     private final Map<String, AtomicBoolean> statementLocks = new ConcurrentHashMap<String, AtomicBoolean>();
     private final AtomicBoolean manualTriggerRequested = new AtomicBoolean(false);
     private final ExecutorService statementExecutor;
@@ -151,14 +151,14 @@ public class KingBaseSqlSyncService {
     }
 
     private void runSingleStatement(ApplicationProperties.KingBase.SqlStatement statement, String statementKey) {
-        long cursor = resolveLastSyncedId(statementKey);
+        String cursor = resolveLastSyncedCursor(statementKey, statement);
         int chunkSize = resolveChunkSize(statement);
         int fetchSize = resolveFetchSize(statement, chunkSize);
         boolean incremental = statement.isIncremental() && StringUtils.hasText(statement.getIdColumn());
         String baseSql = statement.getSql();
 
         long processedRows = 0;
-        long maxObservedId = cursor;
+        String maxObservedCursor = cursor;
         boolean idObservedAny = false;
 
         while (!Thread.currentThread().isInterrupted()) {
@@ -172,10 +172,10 @@ public class KingBaseSqlSyncService {
             if (incremental) {
                 if (chunkResult.isIdObserved()) {
                     idObservedAny = true;
-                    if (chunkResult.getMaxObservedId() > maxObservedId) {
-                        maxObservedId = chunkResult.getMaxObservedId();
-                        cursor = maxObservedId;
-                        persistLastSyncedId(statementKey, cursor);
+                    if (compareCursors(chunkResult.getMaxObservedCursor(), maxObservedCursor, statement) > 0) {
+                        maxObservedCursor = chunkResult.getMaxObservedCursor();
+                        cursor = maxObservedCursor;
+                        persistLastSyncedCursor(statementKey, cursor);
                     }
                 } else {
                     logger.warn("SQL statement '{}' is marked incremental but ID column '{}' was missing or unparsable in the result set.",
@@ -194,7 +194,7 @@ public class KingBaseSqlSyncService {
         }
 
         if (processedRows == 0) {
-            logger.debug("No results for SQL statement '{}' since ID {}", statementKey, cursor);
+            logger.debug("No results for SQL statement '{}' since cursor {}", statementKey, cursor);
             return;
         }
 
@@ -202,8 +202,8 @@ public class KingBaseSqlSyncService {
             if (!idObservedAny) {
                 logger.warn("SQL statement '{}' is marked incremental but no valid ID value was detected during processing.", statementKey);
             }
-            long nextCursor = lastSyncedIds.getOrDefault(statementKey, cursor);
-            logger.info("Synced {} row(s) for SQL statement '{}'; next sync cursor ID: {}", processedRows, statementKey, nextCursor);
+            String nextCursor = lastSyncedCursors.getOrDefault(statementKey, cursor);
+            logger.info("Synced {} row(s) for SQL statement '{}'; next sync cursor: {}", processedRows, statementKey, nextCursor);
         } else {
             logger.info("Synced {} row(s) for SQL statement '{}' (non-incremental).", processedRows, statementKey);
         }
@@ -245,17 +245,18 @@ public class KingBaseSqlSyncService {
     private StatementChunkResult executeStatementChunk(ApplicationProperties.KingBase.SqlStatement statement,
                                                        String statementKey,
                                                        String baseSql,
-                                                       long lastId,
+                                                       String lastCursor,
                                                        int chunkSize,
                                                        int fetchSize,
                                                        boolean incremental) {
         JdbcTemplate template = kingbaseJdbcTemplate;
         if (template == null) {
-            return StatementChunkResult.empty(lastId);
+            return StatementChunkResult.empty(lastCursor);
         }
 
-        StatementChunkResult chunkResult = new StatementChunkResult(lastId);
+        StatementChunkResult chunkResult = new StatementChunkResult(lastCursor);
         String sql = resolveSql(baseSql, chunkSize);
+        final boolean requiresParam = expectsCursorParam(sql) || incremental;
         String indexName = resolveIndexName(statement);
         String syncTimestamp = Instant.now().toString();
         String idColumn = statement.getIdColumn();
@@ -272,8 +273,13 @@ public class KingBaseSqlSyncService {
                 }
 
                 int parameterIndex = 1;
-                if (incremental) {
-                    preparedStatement.setObject(parameterIndex++, lastId);
+                if (requiresParam) {
+                    Object param = convertCursorParam(lastCursor, statement);
+                    if (param == null) {
+                        // Use sensible minimums to avoid NULL semantics in comparisons
+                        param = isNumericId(statement) ? 0L : "";
+                    }
+                    preparedStatement.setObject(parameterIndex++, param);
                 }
                 return preparedStatement;
             }, resultSet -> {
@@ -304,8 +310,8 @@ public class KingBaseSqlSyncService {
                     elasticsearchService.indexDocument(indexName, documentId, document);
 
                     chunkResult.incrementProcessedRows();
-                    Long rowId = extractId(rawIdValue != null ? rawIdValue : document.get(idColumn));
-                    chunkResult.observeId(rowId);
+                    Object raw = rawIdValue != null ? rawIdValue : document.get(idColumn);
+                    chunkResult.observeCursor(asCursorValue(raw));
                 }
                 return null;
             });
@@ -565,31 +571,39 @@ public class KingBaseSqlSyncService {
         return sql;
     }
 
-    private long resolveLastSyncedId(String statementKey) {
-        Long cached = lastSyncedIds.get(statementKey);
+    private String resolveLastSyncedCursor(String statementKey, ApplicationProperties.KingBase.SqlStatement statement) {
+        String cached = lastSyncedCursors.get(statementKey);
         if (cached != null) {
-            return cached.longValue();
+            return cached;
         }
 
         KingBaseSyncStateRepository repository = getStateRepository();
         if (repository != null) {
-            Optional<Long> persisted = repository.fetchLastId(statementKey);
-            if (persisted.isPresent()) {
-                long value = persisted.get().longValue();
-                lastSyncedIds.put(statementKey, value);
+            Optional<String> persisted = repository.fetchLastCursor(statementKey);
+            if (persisted.isPresent() && StringUtils.hasText(persisted.get())) {
+                String value = persisted.get();
+                lastSyncedCursors.put(statementKey, value);
+                return value;
+            }
+            // Backward compatibility: read numeric last_id
+            Optional<Long> numeric = repository.fetchLastId(statementKey);
+            if (numeric.isPresent()) {
+                String value = String.valueOf(numeric.get().longValue());
+                lastSyncedCursors.put(statementKey, value);
                 return value;
             }
         }
 
-        lastSyncedIds.put(statementKey, 0L);
-        return 0L;
+        String initial = isNumericId(statement) ? "0" : "";
+        lastSyncedCursors.put(statementKey, initial);
+        return initial;
     }
 
-    private void persistLastSyncedId(String statementKey, long nextId) {
-        lastSyncedIds.put(statementKey, nextId);
+    private void persistLastSyncedCursor(String statementKey, String nextCursor) {
+        lastSyncedCursors.put(statementKey, nextCursor);
         KingBaseSyncStateRepository repository = getStateRepository();
         if (repository != null) {
-            repository.upsertLastId(statementKey, nextId);
+            repository.upsertLastCursor(statementKey, nextCursor);
         }
     }
 
@@ -669,26 +683,14 @@ public class KingBaseSqlSyncService {
         return value;
     }
 
-    private Long extractId(Object value) {
+    private String asCursorValue(Object value) {
         if (value == null) {
             return null;
         }
-
-        if (value instanceof Number) {
-            Number number = (Number) value;
-            return number.longValue();
+        if (value instanceof java.sql.Timestamp) {
+            return ((java.sql.Timestamp) value).toInstant().toString();
         }
-
-        if (value instanceof CharSequence) {
-            CharSequence sequence = (CharSequence) value;
-            try {
-                return Long.parseLong(sequence.toString());
-            } catch (NumberFormatException ignored) {
-                logger.debug("Unable to parse ID value '{}' as long", sequence);
-            }
-        }
-
-        return null;
+        return String.valueOf(value);
     }
 
     private void cancelGroupSchedules() {
@@ -806,6 +808,54 @@ public class KingBaseSqlSyncService {
         return groupPrefix + "__" + baseKey;
     }
 
+    private boolean expectsCursorParam(String sql) {
+        if (!StringUtils.hasText(sql)) {
+            return false;
+        }
+        // Simple heuristic: a single positional parameter is expected when a '?' exists.
+        // (We intentionally avoid heavy SQL parsing.)
+        return sql.indexOf('?') >= 0;
+    }
+
+    private boolean isNumericId(ApplicationProperties.KingBase.SqlStatement statement) {
+        String type = statement.getIdType();
+        if (!StringUtils.hasText(type)) {
+            return true;
+        }
+        String normalized = type.trim().toLowerCase(Locale.ROOT);
+        return normalized.startsWith("num");
+    }
+
+    private Object convertCursorParam(String cursor, ApplicationProperties.KingBase.SqlStatement statement) {
+        if (cursor == null) {
+            return null;
+        }
+        if (isNumericId(statement)) {
+            try {
+                return Long.parseLong(cursor);
+            } catch (NumberFormatException ex) {
+                return 0L;
+            }
+        }
+        return cursor;
+    }
+
+    private int compareCursors(String a, String b, ApplicationProperties.KingBase.SqlStatement statement) {
+        if (a == null && b == null) return 0;
+        if (a == null) return -1;
+        if (b == null) return 1;
+        if (isNumericId(statement)) {
+            try {
+                long la = Long.parseLong(a);
+                long lb = Long.parseLong(b);
+                return Long.compare(la, lb);
+            } catch (NumberFormatException ex) {
+                // fallback to lexicographic
+            }
+        }
+        return a.compareTo(b);
+    }
+
     private String resolveGroupKey(ApplicationProperties.KingBase.StatementGroup group) {
         if (group == null) {
             return "default";
@@ -829,13 +879,13 @@ public class KingBaseSqlSyncService {
     private static final class StatementChunkResult {
         private int processedRows;
         private boolean idObserved;
-        private long maxObservedId;
+        private String maxObservedCursor;
 
-        private StatementChunkResult(long startingCursor) {
-            this.maxObservedId = startingCursor;
+        private StatementChunkResult(String startingCursor) {
+            this.maxObservedCursor = startingCursor;
         }
 
-        static StatementChunkResult empty(long cursor) {
+        static StatementChunkResult empty(String cursor) {
             return new StatementChunkResult(cursor);
         }
 
@@ -843,13 +893,13 @@ public class KingBaseSqlSyncService {
             processedRows++;
         }
 
-        void observeId(Long rowId) {
-            if (rowId == null) {
+        void observeCursor(String cursor) {
+            if (cursor == null) {
                 return;
             }
             idObserved = true;
-            if (rowId > maxObservedId) {
-                maxObservedId = rowId;
+            if (maxObservedCursor == null || cursor.compareTo(maxObservedCursor) > 0) {
+                maxObservedCursor = cursor;
             }
         }
 
@@ -861,8 +911,8 @@ public class KingBaseSqlSyncService {
             return idObserved;
         }
 
-        long getMaxObservedId() {
-            return maxObservedId;
+        String getMaxObservedCursor() {
+            return maxObservedCursor;
         }
     }
 }

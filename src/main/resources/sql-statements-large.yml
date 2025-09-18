@@ -1,4 +1,4 @@
-large_susers_ync:
+large_users_ync:
   sql: "SELECT * FROM users WHERE id > ? ORDER BY id LIMIT :chunkSize"
   index: users
   id-column: id

@@ -55,6 +55,7 @@ sample_orders_sync:
 - `sql`：必须包含按游标递增的 WHERE 条件，例如 `id > ?`，并可使用 `:chunkSize` 占位符。
 - `index`：Elasticsearch 索引名称。
 - `id-column`：结果集中用于生成文档 ID 的字段。
+- `id-type`：游标类型，`number`（默认）或 `string`。当为 `string` 时，增量比较与数据库的字符串排序一致，请确保该列为单调递增且已建索引。
 - `chunk-size` / `fetch-size` / `stream-results`：覆盖默认的批量控制参数。
 
 对于特别大的表，可以单独放入 `sql-statements-large.yml`，并在 `sql-statement-groups` 中指定独立的 cron 表达式：
@@ -76,6 +77,17 @@ large_orders_sync:
 1. 配置 KingBase JDBC 数据源、Elasticsearch 连接信息及上述 SQL 文件。
 2. 执行 `mvn spring-boot:run` 或通过容器方式启动应用。
 3. 启动日志会提示首次同步已提交，后续按 cron 周期执行；观察 `kingbase_sync_state` 表可验证游标更新。
+
+### 管理 API
+
+应用启动后可通过以下接口进行运维（默认端口 8080）：
+
+- 触发一次全局同步：
+  `curl -X POST http://localhost:8080/kingbase/sync`
+- 清空游标表（`tap.kingbase.sync-state-table`）：
+  `curl -X DELETE http://localhost:8080/kingbase/sync-state`
+- 重新装载并计划语句分组（修改外部 YAML 后调用）：
+  `curl -X PUT http://localhost:8080/kingbase/sync-groups/refresh`
 
 ### 处理大型表
 

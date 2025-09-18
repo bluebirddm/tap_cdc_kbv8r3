@@ -3,6 +3,7 @@ sample_orders_sync:
   index: orders
   id-column: id
   incremental: false
+  enabled: true
   chunk-size: 5000
   fetch-size: 5000
   stream-results: true

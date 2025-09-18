@@ -37,10 +37,19 @@ class KingBaseSyncStateRepository {
                     "CREATE TABLE IF NOT EXISTS %s (" +
                         "statement_name VARCHAR(255) PRIMARY KEY, " +
                         "last_id BIGINT NOT NULL, " +
+                        "cursor_value VARCHAR(1024), " +
                         "updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP" +
                     ")",
                     tableName
                 ));
+                // Best-effort alter to add missing cursor_value column on existing installations
+                try {
+                    jdbcTemplate.execute(String.format(
+                        "ALTER TABLE %s ADD COLUMN IF NOT EXISTS cursor_value VARCHAR(1024)",
+                        tableName
+                    ));
+                } catch (Exception ignored) {
+                }
                 initialized = true;
             } catch (Exception ex) {
                 logger.warn("Unable to ensure sync state table '{}': {}", tableName, ex.getMessage());
@@ -80,6 +89,52 @@ class KingBaseSyncStateRepository {
             );
         } catch (Exception ex) {
             logger.warn("Failed to persist sync state for '{}': {}", statementName, ex.getMessage());
+        }
+    }
+
+    Optional<String> fetchLastCursor(String statementName) {
+        ensureInitialized();
+        try {
+            String value = jdbcTemplate.queryForObject(
+                String.format("SELECT cursor_value FROM %s WHERE statement_name = ?", tableName),
+                String.class,
+                statementName
+            );
+            return Optional.ofNullable(value);
+        } catch (EmptyResultDataAccessException ignored) {
+            return Optional.empty();
+        } catch (Exception ex) {
+            logger.warn("Failed to fetch sync cursor for '{}': {}", statementName, ex.getMessage());
+            return Optional.empty();
+        }
+    }
+
+    void upsertLastCursor(String statementName, String cursor) {
+        ensureInitialized();
+        try {
+            jdbcTemplate.update(
+                String.format(
+                    "INSERT INTO %s (statement_name, last_id, cursor_value, updated_at) " +
+                        "VALUES (?, COALESCE(NULLIF(?, ''), '0')::BIGINT, ?, CURRENT_TIMESTAMP) " +
+                        "ON CONFLICT (statement_name) DO UPDATE SET cursor_value = EXCLUDED.cursor_value, updated_at = CURRENT_TIMESTAMP",
+                    tableName
+                ),
+                statementName,
+                safeNumeric(cursor),
+                cursor
+            );
+        } catch (Exception ex) {
+            logger.warn("Failed to persist sync cursor for '{}': {}", statementName, ex.getMessage());
+        }
+    }
+
+    private String safeNumeric(String s) {
+        if (s == null) return "0";
+        try {
+            Long.parseLong(s);
+            return s;
+        } catch (NumberFormatException e) {
+            return "0";
         }
     }
 

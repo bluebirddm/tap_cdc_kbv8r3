@@ -308,6 +308,7 @@ public class ApplicationProperties {
             private String sql;
             private String index;
             private String idColumn = "id";
+            private String idType = "number"; // number|string
             private boolean incremental = true;
             private boolean enabled = true;
             private Integer chunkSize;
@@ -344,6 +345,14 @@ public class ApplicationProperties {
 
             public void setIdColumn(String idColumn) {
                 this.idColumn = idColumn;
+            }
+
+            public String getIdType() {
+                return idType;
+            }
+
+            public void setIdType(String idType) {
+                this.idType = idType;
             }
 
             public boolean isIncremental() {
