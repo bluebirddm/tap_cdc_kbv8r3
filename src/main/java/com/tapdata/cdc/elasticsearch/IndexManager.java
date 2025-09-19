@@ -77,41 +77,6 @@ public class IndexManager {
         properties.put("_schema", keywordField());
         properties.put("_table", keywordField());
         properties.put("_sync_timestamp", dateField());
-
-        properties.put("id", longField());
-
-        properties.put("name", textWithKeywordField());
-        properties.put("title", textWithKeywordField());
-        properties.put("description", textField());
-        properties.put("content", textField());
-        properties.put("notes", textField());
-
-        properties.put("username", keywordField());
-        properties.put("email", keywordField());
-        properties.put("full_name", textWithKeywordField());
-        properties.put("phone", keywordField());
-        properties.put("address", textField());
-
-        properties.put("price", doubleField());
-        properties.put("category", keywordField());
-        properties.put("stock_quantity", integerField());
-        properties.put("sku", keywordField());
-        properties.put("is_active", booleanField());
-
-        properties.put("user_id", longField());
-        properties.put("product_id", longField());
-        properties.put("order_id", longField());
-        properties.put("total_amount", doubleField());
-        properties.put("status", keywordField());
-        properties.put("quantity", integerField());
-        properties.put("unit_price", doubleField());
-        properties.put("total_price", doubleField());
-        properties.put("shipping_address", textField());
-
-        properties.put("created_at", dateField());
-        properties.put("updated_at", dateField());
-        properties.put("order_date", dateField());
-
         return properties;
     }
 

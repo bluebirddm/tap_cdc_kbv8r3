@@ -19,11 +19,15 @@ import org.springframework.stereotype.Service;
 
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.Collection;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.BlockingQueue;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledThreadPoolExecutor;
@@ -46,6 +50,7 @@ public class ElasticsearchService {
     private final int bulkFlushIntervalSeconds;
     private final int bulkThreads;
     private final ScheduledExecutorService bulkProcessor;
+    private final Map<String, Set<String>> analyzedTextFields = new ConcurrentHashMap<String, Set<String>>();
     private Thread queueMonitor;
 
     @Autowired
@@ -103,6 +108,31 @@ public class ElasticsearchService {
         }
     }
 
+    public void ensureIkTextFields(String indexName, Collection<String> fieldNames) {
+        if (fieldNames == null || fieldNames.isEmpty()) {
+            return;
+        }
+
+        indexManager.ensureIndexExists(indexName);
+
+        Set<String> tracked = analyzedTextFields.computeIfAbsent(indexName,
+            key -> Collections.newSetFromMap(new ConcurrentHashMap<String, Boolean>()));
+
+        Map<String, Object> mapping = new HashMap<String, Object>();
+        for (String fieldName : fieldNames) {
+            if (fieldName == null || fieldName.isEmpty()) {
+                continue;
+            }
+            if (tracked.add(fieldName)) {
+                mapping.put(fieldName, createIkTextMapping());
+            }
+        }
+
+        if (!mapping.isEmpty()) {
+            indexManager.updateMapping(indexName, mapping);
+        }
+    }
+
     private void maybeLogQueued(String op, String indexName, String documentId) {
         if (!logger.isDebugEnabled()) {
             return;
@@ -111,6 +141,22 @@ public class ElasticsearchService {
         if (LOG_EVERY <= 1L || (count % LOG_EVERY == 0L)) {
             logger.debug("Queued {} operations so far; last op={}, index={}, id={}", count, op, indexName, documentId);
         }
+    }
+
+    private Map<String, Object> createIkTextMapping() {
+        Map<String, Object> mapping = new HashMap<String, Object>();
+        mapping.put("type", "text");
+        mapping.put("analyzer", "ik_analyzer");
+        mapping.put("search_analyzer", "ik_analyzer");
+
+        Map<String, Object> keywordField = new HashMap<String, Object>();
+        keywordField.put("type", "keyword");
+
+        Map<String, Object> fields = new HashMap<String, Object>();
+        fields.put("keyword", keywordField);
+
+        mapping.put("fields", fields);
+        return mapping;
     }
 
     private void startBulkProcessor() {

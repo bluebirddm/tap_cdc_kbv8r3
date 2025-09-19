@@ -21,6 +21,8 @@ import javax.annotation.PostConstruct;
 import javax.annotation.PreDestroy;
 import java.sql.PreparedStatement;
 import java.sql.ResultSetMetaData;
+import java.sql.SQLException;
+import java.sql.Types;
 import java.time.Instant;
 import java.io.InputStream;
 import java.util.ArrayList;
@@ -283,6 +285,7 @@ public class KingBaseSqlSyncService {
             }, resultSet -> {
                 ResultSetMetaData metaData = resultSet.getMetaData();
                 int columnCount = metaData.getColumnCount();
+                applyIkAnalyzerMappings(metaData, indexName, normalizedIdColumn);
 
                 while (resultSet.next()) {
                     Map<String, Object> document = new HashMap<String, Object>(columnCount + 2);
@@ -755,6 +758,65 @@ public class KingBaseSqlSyncService {
         }
 
         return statementKey + "_" + Math.abs(hash);
+    }
+
+    private void applyIkAnalyzerMappings(ResultSetMetaData metaData,
+                                         String indexName,
+                                         String normalizedIdColumn) {
+        if (metaData == null) {
+            return;
+        }
+        try {
+            Set<String> textColumns = collectCharacterVaryingColumns(metaData, normalizedIdColumn);
+            if (!textColumns.isEmpty()) {
+                elasticsearchService.ensureIkTextFields(indexName, textColumns);
+            }
+        } catch (SQLException ex) {
+            logger.warn("Failed to prepare IK analyzer mapping for index '{}': {}", indexName, ex.getMessage(), ex);
+        }
+    }
+
+    private Set<String> collectCharacterVaryingColumns(ResultSetMetaData metaData,
+                                                       String normalizedIdColumn) throws SQLException {
+        Set<String> columns = new LinkedHashSet<String>();
+        int columnCount = metaData.getColumnCount();
+        for (int columnIndex = 1; columnIndex <= columnCount; columnIndex++) {
+            if (!isCharacterVaryingColumn(metaData, columnIndex)) {
+                continue;
+            }
+            String columnLabel = metaData.getColumnLabel(columnIndex);
+            if (!StringUtils.hasText(columnLabel)) {
+                columnLabel = metaData.getColumnName(columnIndex);
+            }
+            if (!StringUtils.hasText(columnLabel)) {
+                continue;
+            }
+            if (normalizedIdColumn != null && columnLabel.toLowerCase(Locale.ROOT).equals(normalizedIdColumn)) {
+                continue;
+            }
+            columns.add(columnLabel);
+        }
+        return columns;
+    }
+
+    private boolean isCharacterVaryingColumn(ResultSetMetaData metaData, int columnIndex) throws SQLException {
+        int sqlType = metaData.getColumnType(columnIndex);
+        if (sqlType == Types.VARCHAR
+            || sqlType == Types.LONGVARCHAR
+            || sqlType == Types.NVARCHAR
+            || sqlType == Types.LONGNVARCHAR
+            || sqlType == Types.CHAR
+            || sqlType == Types.NCHAR) {
+            return true;
+        }
+
+        String typeName = metaData.getColumnTypeName(columnIndex);
+        if (!StringUtils.hasText(typeName)) {
+            return false;
+        }
+
+        String normalized = typeName.toLowerCase(Locale.ROOT);
+        return normalized.contains("character varying") || normalized.contains("varchar");
     }
 
     private Object normalizeValue(Object value) {
