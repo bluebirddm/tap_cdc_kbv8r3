@@ -173,21 +173,12 @@ large_orders_sync:
 
 #### 功能特性
 - **自动转换**：实时将标准 SQL 转换为 Kingbase 格式
-- **Schema 前缀**：自动添加可配置的 Schema 前缀（默认 "XJ"）
+- **Schema 前缀**：自动添加可配置的 Schema 前缀
 - **标识符转义**：自动为表名和列名添加双引号
 - **表名映射**：支持自定义表名转换规则（如 `orders` → `T_JW_RYCW`）
 - **列名大写**：自动将列名转换为大写
 - **参数保留**：保留 SQL 中的参数占位符（`?` 和 `:namedParam`）
 - **离线运行**：无需网络连接，完全本地化
-
-#### 转换示例
-```sql
-输入：SELECT * FROM orders WHERE id > ? ORDER BY id LIMIT :chunkSize
-输出：SELECT * FROM XJ."T_JW_RYCW" WHERE "ID" > ? ORDER BY "ID" LIMIT :chunkSize
-
-输入：SELECT name, email FROM users WHERE status = 'active'
-输出：SELECT "NAME", "EMAIL" FROM XJ."USERS" WHERE "STATUS" = 'active'
-```
 
 #### 使用说明
 1. 在左侧输入框中输入标准 SQL 语句

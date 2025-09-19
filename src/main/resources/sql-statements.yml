@@ -12,7 +12,7 @@ sample_T_JW_RYCW_sync:
 
 # Example 2: Using both sql-file and inline sql (sql-file takes precedence)
 sample_ids_str_sync:
-  sql: "SELECT * FROM XJ.\"IDS_STR\" WHERE \"ID\" > ? ORDER BY \"ID\" LIMIT :chunkSize"  # Fallback if file not found
+  sql: "SELECT * FROM \"IDS_STR\" WHERE \"ID\" > ? ORDER BY \"ID\" LIMIT :chunkSize"  # Fallback if file not found
   sql-file: "classpath:sql/ids_str_query.sql"  # Primary SQL source
   index: ids_str
   id-column: ID
@@ -25,7 +25,7 @@ sample_ids_str_sync:
 
 # Example 3: Traditional inline SQL (still supported)
 sample_inline_sync:
-  sql: "SELECT * FROM \"XJ\".\"USERS\" WHERE \"USER_ID\" > ? ORDER BY \"USER_ID\" LIMIT :chunkSize"
+  sql: "SELECT * FROM \"USERS\" WHERE \"USER_ID\" > ? ORDER BY \"USER_ID\" LIMIT :chunkSize"
   index: users
   id-column: USER_ID
   id-type: number

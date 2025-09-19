@@ -393,7 +393,7 @@
                 <div class="config-grid">
                     <div class="form-group">
                         <label for="schemaPrefix">Schema 前缀</label>
-                        <input type="text" id="schemaPrefix" value="XJ" placeholder="输入 Schema 名称">
+                        <input type="text" id="schemaPrefix" value="PUBLIC" placeholder="输入 Schema 名称">
                     </div>
 
                     <div class="table-mappings">
@@ -493,7 +493,7 @@
             const saved = localStorage.getItem('sqlTransformSettings');
             if (saved) {
                 const settings = JSON.parse(saved);
-                document.getElementById('schemaPrefix').value = settings.schemaPrefix || 'XJ';
+                document.getElementById('schemaPrefix').value = settings.schemaPrefix || 'PUBLIC';
 
                 // 加载映射
                 if (settings.mappings && settings.mappings.length > 0) {
@@ -553,7 +553,7 @@
                 return;
             }
 
-            const schemaPrefix = document.getElementById('schemaPrefix').value || 'XJ';
+            const schemaPrefix = document.getElementById('schemaPrefix').value || 'PUBLIC';
             const mappings = getMappings();
 
             let output = input;
