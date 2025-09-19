@@ -31,7 +31,7 @@ my_sync_task:
 ## Examples
 
 See the provided example files:
-- `t_jw_rycw_query.sql` - Simple incremental query
+- `ry.sql` - Simple incremental query
 - `ids_str_query.sql` - Complex query with multiple conditions
 
 ## Parameters

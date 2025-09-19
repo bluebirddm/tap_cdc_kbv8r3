@@ -1,6 +1,6 @@
 # Example 1: Using external SQL file (recommended for complex queries)
 sample_T_JW_RYCW_sync:
-  sql-file: "classpath:sql/t_jw_rycw_query.sql"  # SQL loaded from external file
+  sql-file: "classpath:sql/ry.sql"  # SQL loaded from external file
   index: T_JW_RYCW
   id-column: ID
   id-type: string
