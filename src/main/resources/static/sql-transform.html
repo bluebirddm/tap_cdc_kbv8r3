@@ -82,10 +82,9 @@
         }
 
         .config-grid {
-            display: grid;
-            grid-template-columns: 1fr 2fr;
-            gap: 20px;
-            margin-bottom: 20px;
+            display: flex;
+            flex-direction: column;
+            gap: 24px;
         }
 
         .form-group {
@@ -94,10 +93,13 @@
             gap: 8px;
         }
 
-        .form-group label {
+        .form-group label,
+        .table-mappings > label {
             font-size: 14px;
             font-weight: 600;
             color: var(--gray-700);
+            margin-bottom: 8px;
+            display: block;
         }
 
         .form-group input {
@@ -106,6 +108,7 @@
             border-radius: 6px;
             font-size: 14px;
             transition: var(--transition);
+            max-width: 300px;
         }
 
         .form-group input:focus {
@@ -115,7 +118,9 @@
         }
 
         .table-mappings {
-            margin-top: 20px;
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
         }
 
         .mapping-list {
@@ -392,9 +397,7 @@
                     </div>
 
                     <div class="table-mappings">
-                        <label style="font-size: 14px; font-weight: 600; color: var(--gray-700); margin-bottom: 12px; display: block;">
-                            表名映射规则
-                        </label>
+                        <label>表名映射规则</label>
                         <div id="mappingList" class="mapping-list">
                             <div class="mapping-item">
                                 <input type="text" class="source-table" value="orders" placeholder="原表名">
@@ -588,19 +591,53 @@
             });
 
             // 处理表名（FROM, JOIN, INTO, UPDATE 后面的标识符）
-            output = output.replace(/\b(FROM|JOIN|INTO|UPDATE)\s+(\w+)/gi, (match, keyword, table) => {
+            // 支持 schema.table 格式
+            output = output.replace(/\b(FROM|JOIN|INTO|UPDATE)\s+((\w+)\.)?(\w+)/gi, (match, keyword, schemaGroup, schema, table) => {
                 const lowerTable = table.toLowerCase();
                 const mappedTable = tableMap[lowerTable] || table.toUpperCase();
-                return `${keyword.toUpperCase()} ${schemaPrefix}."${mappedTable}"`;
+
+                if (schema) {
+                    // 已有 schema，只需要引号和大写
+                    return `${keyword.toUpperCase()} "${schema.toUpperCase()}"."${mappedTable}"`;
+                } else {
+                    // 没有 schema，添加默认前缀
+                    return `${keyword.toUpperCase()} "${schemaPrefix.toUpperCase()}"."${mappedTable}"`;
+                }
             });
 
-            // 处理列名（非关键字的标识符）
-            output = output.replace(/\b(\w+)\b/g, (match) => {
-                const upper = match.toUpperCase();
+            // 处理 INSERT 语句中括号内的列名
+            output = output.replace(/\(([^)]+)\)\s*VALUES/gi, (match, columns) => {
+                // 暂存已处理的参数和字符串
+                let processedColumns = columns;
+
+                // 将列名转换为大写并加引号
+                processedColumns = processedColumns.split(',').map(col => {
+                    // 去除空格
+                    col = col.trim();
+                    // 如果是参数占位符，不处理
+                    if (col.startsWith('__PARAM_') || col.startsWith('__STRING_')) {
+                        return col;
+                    }
+                    // 转换为大写并加引号
+                    return `"${col.toUpperCase()}"`;
+                }).join(', ');
+
+                return `(${processedColumns}) VALUES`;
+            });
+
+            // 处理其他位置的列名和标识符
+            // 使用更精确的模式匹配包含下划线的标识符
+            output = output.replace(/\b([a-zA-Z_][a-zA-Z0-9_]*)\b/g, (match, identifier) => {
+                const upper = identifier.toUpperCase();
 
                 // 如果是关键字，保持大写但不加引号
                 if (keywords.includes(upper)) {
                     return upper;
+                }
+
+                // 如果是参数占位符或字符串占位符，不处理
+                if (match.startsWith('__PARAM_') || match.startsWith('__STRING_')) {
+                    return match;
                 }
 
                 // 如果是数字，不处理
@@ -608,40 +645,51 @@
                     return match;
                 }
 
-                // 如果已经在表名中处理过（带schema前缀），不再处理
-                if (output.includes(`${schemaPrefix}."${match.toUpperCase()}"`)) {
-                    return match;
+                // 检查是否已经被处理过（已经有引号）
+                const position = output.indexOf(match);
+                if (position > 0) {
+                    const before = output[position - 1];
+                    const after = output[position + match.length] || '';
+
+                    // 如果前后已经有引号，跳过
+                    if (before === '"' || after === '"') {
+                        return match;
+                    }
+
+                    // 如果是 schema.table 的一部分，已经在表名处理中处理了
+                    if (before === '.' || after === '.') {
+                        return match;
+                    }
                 }
 
-                // 检查是否是表名的一部分（已经被处理）
-                const tablePattern = new RegExp(`${schemaPrefix}\\."\\w+"`);
-                const beforeMatch = output.substring(0, output.indexOf(match));
-                if (tablePattern.test(beforeMatch.slice(-50))) {
-                    return match;
-                }
-
-                // 其他情况作为列名处理
+                // 其他情况作为列名处理，加引号和大写
                 return `"${upper}"`;
             });
 
-            // 清理重复的引号
+            // 清理多余的引号
             output = output.replace(/""+/g, '"');
 
-            // 恢复参数
+            // 修复一些特殊情况
+            output = output.replace(/"\*"/g, '*'); // SELECT * 不需要引号
+            output = output.replace(/"(\d+)"/g, '$1'); // 纯数字不需要引号
+
+            // 恢复参数（确保参数没有被引号包围）
             params.forEach((param, index) => {
-                output = output.replace(`"__PARAM_${index}__"`, param);
-                output = output.replace(`__PARAM_${index}__`, param);
+                const placeholder = `__PARAM_${index}__`;
+                // 移除参数周围的引号
+                output = output.replace(`"${placeholder}"`, placeholder);
+                // 恢复原始参数
+                output = output.replace(placeholder, param);
             });
 
             // 恢复字符串字面量
             strings.forEach((str, index) => {
-                output = output.replace(`"__STRING_${index}__"`, str);
-                output = output.replace(`__STRING_${index}__`, str);
+                const placeholder = `__STRING_${index}__`;
+                // 移除字符串占位符周围的引号
+                output = output.replace(`"${placeholder}"`, placeholder);
+                // 恢复原始字符串
+                output = output.replace(placeholder, str);
             });
-
-            // 清理一些常见的错误模式
-            output = output.replace(/"\*"/g, '*'); // SELECT * 不需要引号
-            output = output.replace(/"(\d+)"/g, '$1'); // 数字不需要引号
 
             document.getElementById('outputSql').value = output;
             saveSettings();

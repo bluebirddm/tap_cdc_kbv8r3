@@ -14,6 +14,7 @@ mvn clean compile           # Compile only
 mvn clean package           # Create executable JAR
 mvn clean install           # Install to local repository
 JAVA_HOME=/usr/lib/jvm/java-8-openjdk-amd64 mvn -q -DskipTests package
+JAVA_HOME=/usr/lib/jvm/java-8-openjdk-amd64 mvn -DskipTests package spring-boot:repackage
 ```
 
 ### Run Application

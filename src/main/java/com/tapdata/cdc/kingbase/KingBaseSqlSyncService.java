@@ -445,6 +445,8 @@ public class KingBaseSqlSyncService {
 
             if ("sql".equals(key)) {
                 statement.setSql(asString(value));
+            } else if ("sqlfile".equals(key)) {
+                statement.setSqlFile(asString(value));
             } else if ("index".equals(key)) {
                 statement.setIndex(asString(value));
             } else if ("idcolumn".equals(key)) {
@@ -474,6 +476,61 @@ public class KingBaseSqlSyncService {
                 }
             }
         }
+
+        // Load SQL from file if specified and not already loaded
+        if (StringUtils.hasText(statement.getSqlFile()) && !StringUtils.hasText(statement.getSql())) {
+            String sqlContent = loadSqlFromFile(statement.getSqlFile());
+            if (StringUtils.hasText(sqlContent)) {
+                statement.setSql(sqlContent);
+            }
+        }
+    }
+
+    private String loadSqlFromFile(String sqlFile) {
+        if (!StringUtils.hasText(sqlFile)) {
+            return null;
+        }
+
+        Resource resource = resolveSqlFileResource(sqlFile);
+        if (resource == null || !resource.exists() || !resource.isReadable()) {
+            logger.warn("SQL file '{}' could not be found or is not readable.", sqlFile);
+            return null;
+        }
+
+        try (InputStream inputStream = resource.getInputStream()) {
+            byte[] bytes = new byte[inputStream.available()];
+            inputStream.read(bytes);
+            String sqlContent = new String(bytes, "UTF-8").trim();
+            logger.debug("Loaded SQL from file '{}': {} characters", resource.getDescription(), sqlContent.length());
+            return sqlContent;
+        } catch (Exception ex) {
+            logger.error("Failed to load SQL from file '{}': {}", resource.getDescription(), ex.getMessage(), ex);
+            return null;
+        }
+    }
+
+    private Resource resolveSqlFileResource(String location) {
+        String normalizedLocation = location.trim();
+
+        // First try to resolve as a file system resource
+        Resource fileResource = resolveFileSystemResource(normalizedLocation);
+        if (fileResource != null && fileResource.exists() && fileResource.isReadable()) {
+            return fileResource;
+        }
+
+        // Fall back to resource loader (classpath, etc.)
+        Resource resource = resourceLoader.getResource(normalizedLocation);
+
+        // For classpath resources, also check if there's a file override
+        if (normalizedLocation.startsWith("classpath:")) {
+            String fallbackName = normalizedLocation.substring("classpath:".length());
+            Resource override = resolveFileSystemResource(fallbackName);
+            if (override != null && override.exists() && override.isReadable()) {
+                return override;
+            }
+        }
+
+        return resource;
     }
 
     private String asString(Object value) {
@@ -526,8 +583,18 @@ public class KingBaseSqlSyncService {
         if (statement == null || !statement.isEnabled()) {
             return false;
         }
+
+        // Try to load SQL from file if sqlFile is specified and sql is empty
+        if (StringUtils.hasText(statement.getSqlFile()) && !StringUtils.hasText(statement.getSql())) {
+            String sqlContent = loadSqlFromFile(statement.getSqlFile());
+            if (StringUtils.hasText(sqlContent)) {
+                statement.setSql(sqlContent);
+            }
+        }
+
         if (!StringUtils.hasText(statement.getSql())) {
-            logger.warn("Skipping SQL statement '{}' because SQL text is blank.", statement != null ? statement.getName() : "");
+            logger.warn("Skipping SQL statement '{}' because SQL text is blank and could not be loaded from file.",
+                       statement != null ? statement.getName() : "");
             return false;
         }
         return true;

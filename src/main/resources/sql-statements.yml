@@ -1,9 +1,36 @@
-sample_orders_sync:
-  sql: "SELECT * FROM orders WHERE id > ? ORDER BY id LIMIT :chunkSize"
-  index: orders
-  id-column: id
-  incremental: false
+# Example 1: Using external SQL file (recommended for complex queries)
+sample_T_JW_RYCW_sync:
+  sql-file: "classpath:sql/t_jw_rycw_query.sql"  # SQL loaded from external file
+  index: T_JW_RYCW
+  id-column: ID
+  id-type: string
+  incremental: true
   enabled: true
   chunk-size: 5000
   fetch-size: 5000
+  stream-results: true
+
+# Example 2: Using both sql-file and inline sql (sql-file takes precedence)
+sample_ids_str_sync:
+  sql: "SELECT * FROM XJ.\"IDS_STR\" WHERE \"ID\" > ? ORDER BY \"ID\" LIMIT :chunkSize"  # Fallback if file not found
+  sql-file: "classpath:sql/ids_str_query.sql"  # Primary SQL source
+  index: ids_str
+  id-column: ID
+  id-type: string
+  incremental: true
+  enabled: true
+  chunk-size: 1000
+  fetch-size: 1000
+  stream-results: true
+
+# Example 3: Traditional inline SQL (still supported)
+sample_inline_sync:
+  sql: "SELECT * FROM \"XJ\".\"USERS\" WHERE \"USER_ID\" > ? ORDER BY \"USER_ID\" LIMIT :chunkSize"
+  index: users
+  id-column: USER_ID
+  id-type: number
+  incremental: true
+  enabled: false  # Disabled by default
+  chunk-size: 2000
+  fetch-size: 2000
   stream-results: true

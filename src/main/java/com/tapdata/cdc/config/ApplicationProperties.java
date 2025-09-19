@@ -351,6 +351,7 @@ public class ApplicationProperties {
         public static class SqlStatement {
             private String name;
             private String sql;
+            private String sqlFile; // Path to external SQL file
             private String index;
             private String idColumn = "id";
             private String idType = "number"; // number|string
@@ -374,6 +375,14 @@ public class ApplicationProperties {
 
             public void setSql(String sql) {
                 this.sql = sql;
+            }
+
+            public String getSqlFile() {
+                return sqlFile;
+            }
+
+            public void setSqlFile(String sqlFile) {
+                this.sqlFile = sqlFile;
             }
 
             public String getIndex() {

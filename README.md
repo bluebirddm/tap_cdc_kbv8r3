@@ -164,6 +164,38 @@ large_orders_sync:
   ```
   请求体字段均可省略，未提供时将回退到默认值；例如去掉 `schema`/`table` 即等价于全局搜索。
 
+### SQL 转换工具
+
+应用内置了一个 SQL 转换工具，用于将标准 SQL 语句转换为 Kingbase 兼容格式。该工具可自动添加 Schema 前缀、转义标识符，并处理表名映射。
+
+#### 访问方式
+启动应用后，访问：`http://localhost:8080/sql-transform`
+
+#### 功能特性
+- **自动转换**：实时将标准 SQL 转换为 Kingbase 格式
+- **Schema 前缀**：自动添加可配置的 Schema 前缀（默认 "XJ"）
+- **标识符转义**：自动为表名和列名添加双引号
+- **表名映射**：支持自定义表名转换规则（如 `orders` → `T_JW_RYCW`）
+- **列名大写**：自动将列名转换为大写
+- **参数保留**：保留 SQL 中的参数占位符（`?` 和 `:namedParam`）
+- **离线运行**：无需网络连接，完全本地化
+
+#### 转换示例
+```sql
+输入：SELECT * FROM orders WHERE id > ? ORDER BY id LIMIT :chunkSize
+输出：SELECT * FROM XJ."T_JW_RYCW" WHERE "ID" > ? ORDER BY "ID" LIMIT :chunkSize
+
+输入：SELECT name, email FROM users WHERE status = 'active'
+输出：SELECT "NAME", "EMAIL" FROM XJ."USERS" WHERE "STATUS" = 'active'
+```
+
+#### 使用说明
+1. 在左侧输入框中输入标准 SQL 语句
+2. 系统会实时在右侧显示转换后的 Kingbase SQL
+3. 可以自定义 Schema 前缀和表名映射规则
+4. 点击"复制"按钮将结果复制到剪贴板
+5. 配置会自动保存在浏览器本地存储中
+
 ### 同步游标提示
 
 - 若 ID 列为字符串类型，针对 KingBase 的比较 `WHERE "ID" > ''` 不会命中任何记录。应用首次运行时会自动使用空格 `' '` 作为初始游标；如需重置增量状态，请先 `DELETE FROM kingbase_sync_state;`，随后在首次查询时仍使用 `' '` 作为游标。
