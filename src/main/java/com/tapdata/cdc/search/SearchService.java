@@ -45,34 +45,28 @@ public class SearchService {
 
     public SearchResult searchAllTables(String keyword, String schema, String table, int page, int size) {
         SearchSourceBuilder sourceBuilder = new SearchSourceBuilder();
-        BoolQueryBuilder boolQuery = QueryBuilders.boolQuery();
-
-        boolean hasQuery = false;
-        if (hasText(keyword)) {
-            boolQuery.must(QueryBuilders.multiMatchQuery(keyword)
-                .field("*")
-                .operator(Operator.OR)
-                .fuzziness(Fuzziness.AUTO));
-            hasQuery = true;
-        }
-
-        if (hasText(schema)) {
-            boolQuery.filter(QueryBuilders.termQuery("_schema", schema));
-            hasQuery = true;
-        }
-
-        if (hasText(table)) {
-            boolQuery.filter(QueryBuilders.termQuery("_table", table));
-            hasQuery = true;
-        }
-
-        if (!hasQuery) {
-            boolQuery.must(QueryBuilders.matchAllQuery());
-        }
+        BoolQueryBuilder boolQuery = buildSearchQuery(keyword, schema, table);
 
         sourceBuilder.query(boolQuery);
         configurePaging(sourceBuilder, page, size);
-        configureSortingAndHighlight(sourceBuilder);
+        configureSorting(sourceBuilder);
+        configureHighlight(sourceBuilder);
+
+        return executeSearch(new String[] {"*"}, sourceBuilder);
+    }
+
+    public SearchResult searchAllTablesWithoutSource(String keyword, int page, int size) {
+        return searchAllTablesWithoutSource(keyword, null, null, page, size);
+    }
+
+    public SearchResult searchAllTablesWithoutSource(String keyword, String schema, String table, int page, int size) {
+        SearchSourceBuilder sourceBuilder = new SearchSourceBuilder();
+        BoolQueryBuilder boolQuery = buildSearchQuery(keyword, schema, table);
+
+        sourceBuilder.query(boolQuery);
+        configurePaging(sourceBuilder, page, size);
+        configureSorting(sourceBuilder);
+        sourceBuilder.fetchSource(false);
 
         return executeSearch(new String[] {"*"}, sourceBuilder);
     }
@@ -94,7 +88,8 @@ public class SearchService {
 
         sourceBuilder.query(boolQuery);
         configurePaging(sourceBuilder, page, size);
-        configureSortingAndHighlight(sourceBuilder);
+        configureSorting(sourceBuilder);
+        configureHighlight(sourceBuilder);
 
         return executeSearch(new String[] {indexName}, sourceBuilder);
     }
@@ -172,6 +167,34 @@ public class SearchService {
         return result;
     }
 
+    private BoolQueryBuilder buildSearchQuery(String keyword, String schema, String table) {
+        BoolQueryBuilder boolQuery = QueryBuilders.boolQuery();
+
+        boolean hasQuery = false;
+        if (hasText(keyword)) {
+            boolQuery.must(QueryBuilders.multiMatchQuery(keyword)
+                .field("*")
+                .operator(Operator.OR)
+                .fuzziness(Fuzziness.AUTO));
+            hasQuery = true;
+        }
+
+        if (hasText(schema)) {
+            boolQuery.filter(QueryBuilders.termQuery("_schema", schema));
+            hasQuery = true;
+        }
+
+        if (hasText(table)) {
+            boolQuery.filter(QueryBuilders.termQuery("_table", table));
+            hasQuery = true;
+        }
+
+        if (!hasQuery) {
+            boolQuery.must(QueryBuilders.matchAllQuery());
+        }
+        return boolQuery;
+    }
+
     private void configurePaging(SearchSourceBuilder sourceBuilder, int page, int size) {
         int safePage = page < 0 ? 0 : page;
         int safeSize = size <= 0 ? 20 : Math.min(size, MAX_PAGE_SIZE);
@@ -180,10 +203,12 @@ public class SearchService {
         sourceBuilder.trackTotalHits(true);
     }
 
-    private void configureSortingAndHighlight(SearchSourceBuilder sourceBuilder) {
+    private void configureSorting(SearchSourceBuilder sourceBuilder) {
         sourceBuilder.sort(SortBuilders.scoreSort());
         sourceBuilder.sort(SortBuilders.fieldSort("_sync_timestamp").order(SortOrder.DESC));
+    }
 
+    private void configureHighlight(SearchSourceBuilder sourceBuilder) {
         HighlightBuilder highlightBuilder = new HighlightBuilder();
         highlightBuilder.requireFieldMatch(false);
         HighlightBuilder.Field field = new HighlightBuilder.Field("*")

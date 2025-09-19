@@ -26,10 +26,12 @@ import java.io.InputStream;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -630,6 +632,26 @@ public class KingBaseSqlSyncService {
             return statement.getName();
         }
         return Integer.toHexString(statement.getSql() != null ? statement.getSql().hashCode() : 0);
+    }
+
+    /**
+     * Exposes the configured statement keys (derived from YAML names or SQL hash).
+     * Used by read-only APIs to interpret Elasticsearch document IDs.
+     */
+    public Set<String> getConfiguredStatementKeys() {
+        List<ApplicationProperties.KingBase.SqlStatement> statements = resolveConfiguredStatements();
+        if (CollectionUtils.isEmpty(statements)) {
+            return Collections.<String>emptySet();
+        }
+
+        Set<String> keys = new LinkedHashSet<String>(statements.size());
+        for (ApplicationProperties.KingBase.SqlStatement statement : statements) {
+            String key = resolveStatementKey(statement);
+            if (StringUtils.hasText(key)) {
+                keys.add(key);
+            }
+        }
+        return keys;
     }
 
     private String resolveIndexName(ApplicationProperties.KingBase.SqlStatement statement) {

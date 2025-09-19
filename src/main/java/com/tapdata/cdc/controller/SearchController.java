@@ -1,11 +1,16 @@
 package com.tapdata.cdc.controller;
 
+import com.tapdata.cdc.kingbase.KingBaseSqlSyncService;
 import com.tapdata.cdc.search.SearchResult;
 import com.tapdata.cdc.search.SearchService;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
+import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
+import java.util.Set;
 
 @RestController
 @RequestMapping("/api/search")
@@ -13,9 +18,12 @@ import java.util.List;
 public class SearchController {
 
     private final SearchService searchService;
+    private final KingBaseSqlSyncService kingBaseSqlSyncService;
 
-    public SearchController(SearchService searchService) {
+    public SearchController(SearchService searchService,
+                            ObjectProvider<KingBaseSqlSyncService> kingBaseSqlSyncServiceProvider) {
         this.searchService = searchService;
+        this.kingBaseSqlSyncService = kingBaseSqlSyncServiceProvider.getIfAvailable();
     }
 
     /**
@@ -37,6 +45,29 @@ public class SearchController {
 
         SearchResult result = searchService.searchAllTables(keyword, page, size);
         return ResponseEntity.ok(result);
+    }
+
+    /**
+     * 全局搜索（仅返回索引与去前缀后的文档 ID）
+     */
+    @GetMapping("/global/ids")
+    public ResponseEntity<SearchResult> globalSearchIds(
+            @RequestParam(required = false) String keyword,
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "20") int size) {
+
+        if (page < 0) page = 0;
+        if (size <= 0 || size > 100) size = 20;
+
+        SearchResult result = searchService.searchAllTablesWithoutSource(keyword, page, size);
+
+        SearchResult trimmed = new SearchResult();
+        trimmed.setTotalHits(result.getTotalHits());
+        trimmed.setMaxScore(result.getMaxScore());
+        trimmed.setDuration(result.getDuration());
+        trimmed.setHits(compactHits(result.getHits()));
+
+        return ResponseEntity.ok(trimmed);
     }
 
     /**
@@ -119,6 +150,62 @@ public class SearchController {
         );
 
         return ResponseEntity.ok(result);
+    }
+
+    private List<SearchResult.SearchHit> compactHits(List<SearchResult.SearchHit> hits) {
+        if (hits == null || hits.isEmpty()) {
+            return Collections.emptyList();
+        }
+
+        List<String> prefixes = resolveStatementPrefixes();
+        List<SearchResult.SearchHit> compact = new ArrayList<SearchResult.SearchHit>(hits.size());
+
+        for (SearchResult.SearchHit original : hits) {
+            if (original == null) {
+                continue;
+            }
+
+            SearchResult.SearchHit minimal = new SearchResult.SearchHit();
+            minimal.setIndex(original.getIndex());
+            minimal.setId(stripStatementPrefix(original.getId(), prefixes));
+            compact.add(minimal);
+        }
+        return compact;
+    }
+
+    private List<String> resolveStatementPrefixes() {
+        if (kingBaseSqlSyncService == null) {
+            return Collections.emptyList();
+        }
+
+        Set<String> keys = kingBaseSqlSyncService.getConfiguredStatementKeys();
+        if (keys == null || keys.isEmpty()) {
+            return Collections.emptyList();
+        }
+
+        List<String> prefixes = new ArrayList<String>(keys);
+        prefixes.sort((left, right) -> Integer.compare(
+            right != null ? right.length() : 0,
+            left != null ? left.length() : 0
+        ));
+        return prefixes;
+    }
+
+    private String stripStatementPrefix(String documentId, List<String> prefixes) {
+        if (documentId == null || prefixes == null || prefixes.isEmpty()) {
+            return documentId;
+        }
+
+        for (String prefix : prefixes) {
+            if (prefix == null || prefix.isEmpty()) {
+                continue;
+            }
+            String expected = prefix + "_";
+            if (documentId.startsWith(expected)) {
+                return documentId.substring(expected.length());
+            }
+        }
+        return documentId;
     }
 
     /**

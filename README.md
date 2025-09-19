@@ -126,6 +126,44 @@ large_orders_sync:
 - 重新装载并计划语句分组（修改外部 YAML 后调用）：
   `curl -X PUT http://localhost:8080/kingbase/sync-groups/refresh`
 
+### 搜索 API
+
+`SearchController` 暴露在 `http://<host>:<port>/api/search` 下，默认端口为 `8080`。分页参数 `page` 从 `0` 开始计数，`size` 取值范围为 `1`~`100`，未指定时使用默认值 `page=0`、`size=20`。
+
+- 全局搜索（在所有索引中按关键字搜索，可省略 `keyword` 返回全部；响应包含 `_source` 字段，体积最大）：
+  ```bash
+  curl "http://localhost:8080/api/search/global?keyword=order&page=0&size=20"
+  ```
+- 全局搜索（仅返回索引与文档 ID，适用于只需定位文档时；ID 会自动移除 `src/main/resources/sql-statements.yml` 中语句名称生成的前缀，以便直接映射源表主键）：
+  ```bash
+  curl "http://localhost:8080/api/search/global/ids?keyword=order&page=0&size=20"
+  ```
+- 指定 schema + table 搜索（`schema` 与 `table` 为必填，其余参数同上）：
+  ```bash
+  curl "http://localhost:8080/api/search/table?schema=PUBLIC&table=orders&keyword=order&page=0&size=20"
+  ```
+- 指定 schema 下的所有表搜索（`schema` 必填，`keyword` 可选）：
+  ```bash
+  curl "http://localhost:8080/api/search/schema?schema=PUBLIC&keyword=order&page=0&size=20"
+  ```
+- 查询可用索引列表：
+  ```bash
+  curl "http://localhost:8080/api/search/indices"
+  ```
+- 高级搜索（POST JSON 请求体，可同时限定 `schema`/`table` 与分页）：
+  ```bash
+  curl -X POST "http://localhost:8080/api/search/advanced" \
+       -H "Content-Type: application/json" \
+       -d '{
+             "keyword": "order",
+             "schema": "PUBLIC",
+             "table": "orders",
+             "page": 0,
+             "size": 20
+           }'
+  ```
+  请求体字段均可省略，未提供时将回退到默认值；例如去掉 `schema`/`table` 即等价于全局搜索。
+
 ### 同步游标提示
 
 - 若 ID 列为字符串类型，针对 KingBase 的比较 `WHERE "ID" > ''` 不会命中任何记录。应用首次运行时会自动使用空格 `' '` 作为初始游标；如需重置增量状态，请先 `DELETE FROM kingbase_sync_state;`，随后在首次查询时仍使用 `' '` 作为游标。
